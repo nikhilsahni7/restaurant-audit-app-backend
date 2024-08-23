@@ -1,1 +1,1 @@
-# Restayrant audit backend
+# Restaurant audit backend
