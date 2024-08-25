@@ -1,5 +1,9 @@
+import PDFDocument from 'pdfkit';
+import fs from 'fs';
+import path from 'path';
 import Audit from '../models/TaskModel.js';
-import asyncHandler from 'express-async-handler'; // For handling async errors
+import AuditVersion from '../models/PdfModel.js';
+import asyncHandler from 'express-async-handler';
 
 // Fetch an audit template by ID (for users to fill out)
 export const getAuditTemplateById = asyncHandler(async (req, res) => {
@@ -14,7 +18,6 @@ export const getAuditTemplateById = asyncHandler(async (req, res) => {
     }
 });
 
-// Fill out or create a new audit form
 export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params; // Template ID to fetch default values
@@ -53,14 +56,64 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
 
         const savedAuditForm = await newAuditForm.save();
 
+        // Generate PDF
+        const pdfPath = await generateAuditPdf(savedAuditForm);
+
+        // Save version control information
+        const auditVersion = new AuditVersion({
+            userId,
+            formId: savedAuditForm._id,
+            versionNumber: savedAuditForm.version,
+            pdfPath
+        });
+
+        await auditVersion.save();
+
         res.status(201).json({
             message: 'Audit form created successfully',
-            auditForm: savedAuditForm
+            auditForm: savedAuditForm,
+            pdfPath: pdfPath
         });
     } catch (error) {
         res.status(500).json({ message: 'Failed to create audit form', error: error.message });
     }
 });
+
+// Function to generate the PDF
+const generateAuditPdf = async (auditForm) => {
+    const doc = new PDFDocument();
+    const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
+    const pdfPath = path.join("../pdf", '..', 'pdfs', pdfName);
+
+    // Ensure the directory exists
+    fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+
+    // Write PDF to file
+    doc.pipe(fs.createWriteStream(pdfPath));
+
+    // Fill in the PDF with data
+    doc.fontSize(20).text('Audit Form', { align: 'center' });
+    doc.fontSize(12).text(`Restaurant Name: ${auditForm.restaurantName}`);
+    doc.text(`Company Name: ${auditForm.nameOfCompany}`);
+    doc.text(`FSSAI License No: ${auditForm.fssaiLicenseNo}`);
+    doc.text(`Date of Audit: ${auditForm.dateOfAudit}`);
+    doc.text(`Audit Type: ${auditForm.auditType}`);
+    doc.text(`Audit Criteria: ${auditForm.auditCriteria}`);
+    doc.text(`Type of Audit: ${auditForm.typeOfAudit}`);
+    doc.text(`Scope: ${auditForm.scope}`);
+    doc.text(`Manpower: ${auditForm.manpower}`);
+
+    auditForm.sections.forEach(section => {
+        doc.addPage().fontSize(14).text(section.title, { align: 'left' });
+        section.questions.forEach(question => {
+            doc.fontSize(12).text(`${question.label}: ${question.answer}`);
+        });
+    });
+
+    doc.end();
+
+    return pdfPath;
+};
 
 // Fetch all audit forms filled by a specific user
 export const getUserFilledAuditForms = asyncHandler(async (req, res) => {
