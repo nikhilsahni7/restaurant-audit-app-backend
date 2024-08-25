@@ -5,7 +5,6 @@ const questionSchema = new Schema({
     compliance: {
         type: String,
         enum: ['Y', 'N', 'NI', 'N/A'], // Compliance options
-        required: true
     },
     evidenceAndComments: String,
     image:String
