@@ -4,6 +4,86 @@ import path from 'path';
 import Audit from '../models/TaskModel.js';
 import AuditVersion from '../models/PdfModel.js';
 import asyncHandler from 'express-async-handler';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import User from '../models/UserModel.js'; 
+import dotenv from 'dotenv'
+
+dotenv.config();
+
+export const userRegistration = asyncHandler(async (req, res) => {
+    try{
+
+        const { name, email, phoneNumber, password } = req.body;
+    
+        // Check if user already exists
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ message: 'User already exists' });
+        }
+    
+        // Hash password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+    
+        // Create new user
+        const user = new User({
+            name,
+            email,
+            phoneNumber,
+            password: hashedPassword
+        });
+    
+        const savedUser = await user.save();
+    
+        // Create JWT token
+        const token = jwt.sign({ userId: savedUser._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    
+        res.status(201).json({
+            message: 'User registered successfully',
+            token,
+            userId: savedUser._id,
+            name: savedUser.name,
+            email: savedUser.email,
+            phoneNumber: savedUser.phoneNumber
+        });
+    }catch(err){
+        return res.status(500).json({message:`Internal Server Error ${err}`})
+    }
+});
+
+export const userLogin = asyncHandler(async (req, res) => {
+    try{
+    const { email, password } = req.body;
+
+    // Check if user exists
+    const user = await User.findOne({ email });
+    if (!user) {
+        return res.status(400).json({ message: 'Invalid email or password' });
+    }
+
+    // Validate password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+        return res.status(400).json({ message: 'Invalid email or password' });
+    }
+
+    // Create JWT token
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
+    res.json({
+        message: 'User logged in successfully',
+        token,
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        phoneNumber: user.phoneNumber
+    });
+}catch(err){
+    return res.status(500).json({message:`Internal Server Error ${err}`})
+}
+    
+});
 
 // Fetch an audit template by ID (for users to fill out)
 export const getAuditTemplateById = asyncHandler(async (req, res) => {
@@ -21,7 +101,26 @@ export const getAuditTemplateById = asyncHandler(async (req, res) => {
 export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params; // Template ID to fetch default values
-        const { userId, dateOfAudit, auditType, auditCriteria, typeOfAudit, scope, manpower, sections } = req.body;
+        const { 
+            userId, 
+            nameOfCompany,
+            fssaiLicenseNo,
+            companyRepresentatives,
+            siteAddress,
+            state,
+            pinCode,
+            phoneNo,
+            email,
+            website,
+            auditTeam,
+            dateOfAudit, 
+            auditType, 
+            auditCriteria, 
+            typeOfAudit, 
+            scope, 
+            manpower,
+            sections
+        } = req.body;
 
         // Find the existing audit template
         const template = await Audit.findById(id);
@@ -31,17 +130,18 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
 
         // Create a new audit form entry
         const newAuditForm = new Audit({
-            restaurantName: template.restaurantName,
-            nameOfCompany: template.nameOfCompany,
-            fssaiLicenseNo: template.fssaiLicenseNo,
-            companyRepresentatives: template.companyRepresentatives,
-            siteAddress: template.siteAddress,
-            state: template.state,
-            pinCode: template.pinCode,
-            phoneNo: template.phoneNo,
-            email: template.email,
-            website: template.website,
-            auditTeam: template.auditTeam,
+            userId,
+            restaurantName: template.restaurantName, // Use template's restaurant name
+            nameOfCompany,
+            fssaiLicenseNo,
+            companyRepresentatives,
+            siteAddress,
+            state,
+            pinCode,
+            phoneNo,
+            email,
+            website,
+            auditTeam,
             dateOfAudit,
             auditType,
             auditCriteria,
@@ -51,7 +151,6 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
             sections,
             status: 'FILLED',
             version: (template.version || 0) + 1, // Increment version based on previous template
-            userId
         });
 
         const savedAuditForm = await newAuditForm.save();
@@ -79,9 +178,9 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
     }
 });
 
-// Function to generate the PDF
 const generateAuditPdf = async (auditForm) => {
-    const doc = new PDFDocument();
+
+    const doc = new PDFDocument({ margin: 50 });
     const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
     const pdfPath = path.join("../pdf", '..', 'pdfs', pdfName);
 
@@ -91,27 +190,59 @@ const generateAuditPdf = async (auditForm) => {
     // Write PDF to file
     doc.pipe(fs.createWriteStream(pdfPath));
 
-    // Fill in the PDF with data
-    doc.fontSize(20).text('Audit Form', { align: 'center' });
-    doc.fontSize(12).text(`Restaurant Name: ${auditForm.restaurantName}`);
-    doc.text(`Company Name: ${auditForm.nameOfCompany}`);
-    doc.text(`FSSAI License No: ${auditForm.fssaiLicenseNo}`);
-    doc.text(`Date of Audit: ${auditForm.dateOfAudit}`);
-    doc.text(`Audit Type: ${auditForm.auditType}`);
-    doc.text(`Audit Criteria: ${auditForm.auditCriteria}`);
-    doc.text(`Type of Audit: ${auditForm.typeOfAudit}`);
-    doc.text(`Scope: ${auditForm.scope}`);
-    doc.text(`Manpower: ${auditForm.manpower}`);
+    // Header
+    doc.fontSize(16).text('HACCP RE-CERTIFICATION', { align: 'center' });
+    doc.fontSize(10).text('CAC/RCP 1-1969, Rev. 4-2003', { align: 'center' });
+    doc.text('Doc No: QMSPL_F/9.2_F13', { align: 'center' });
+    doc.text('CONFIDENTIAL', { align: 'center' });
+    doc.moveDown();
 
-    auditForm.sections.forEach(section => {
-        doc.addPage().fontSize(14).text(section.title, { align: 'left' });
-        section.questions.forEach(question => {
-            doc.fontSize(12).text(`${question.label}: ${question.answer}`);
-        });
+    // Company Information
+    doc.fontSize(12).text('ISSUED TO: ' + auditForm.nameOfCompany, { align: 'left' });
+    doc.moveDown();
+
+    // Create a simple table
+    const tableData = [
+        ['Name of Company', auditForm.nameOfCompany],
+        ['FSSAI License No.', auditForm.fssaiLicenseNo],
+        ['Company Representative', auditForm.companyRepresentatives.join(', ')],
+        ['Site Address', auditForm.siteAddress],
+        ['State', auditForm.state],
+        ['Pin Code', auditForm.pinCode],
+        ['Phone No.', auditForm.phoneNo],
+        ['Website', auditForm.website],
+        ['E mail', auditForm.email],
+        ['Audit Team', auditForm.auditTeam.join(', ')],
+        ['Date of Audit', new Date(auditForm.dateOfAudit).toLocaleDateString()],
+        ['Audit Type', auditForm.auditType],
+        ['Audit Criteria', auditForm.auditCriteria],
+        ['Type of Audit', auditForm.typeOfAudit],
+        ['Scope', auditForm.scope],
+        ['Manpower', `Male: ${auditForm.manpower.male}, Female: ${auditForm.manpower.female}`]
+    ];
+
+    const startX = 50;
+    let startY = doc.y;
+    const cellPadding = 5;
+    const cellWidth = 250;
+    const cellHeight = 20;
+
+    tableData.forEach((row, rowIndex) => {
+        doc.font('Helvetica-Bold').fontSize(10)
+           .text(row[0], startX, startY + rowIndex * cellHeight + cellPadding, { width: cellWidth });
+        
+        doc.font('Helvetica').fontSize(10)
+           .text(row[1], startX + cellWidth, startY + rowIndex * cellHeight + cellPadding, { width: cellWidth });
+        
+        doc.rect(startX, startY + rowIndex * cellHeight, cellWidth, cellHeight).stroke();
+        doc.rect(startX + cellWidth, startY + rowIndex * cellHeight, cellWidth, cellHeight).stroke();
     });
 
-    doc.end();
+    doc.moveDown();
 
+    // ... (rest of the code remains the same)
+
+    doc.end();
     return pdfPath;
 };
 

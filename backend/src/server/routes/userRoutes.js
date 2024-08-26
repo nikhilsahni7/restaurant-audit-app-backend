@@ -4,20 +4,22 @@ import {
     fillOrCreateAuditForm,
     getUserFilledAuditForms,
     getAuditFormVersionById,
-    deleteAuditForm
+    deleteAuditForm,
+    userRegistration,
+    userLogin
 } from '../controllers/userController.js';
 
 const router = express.Router();
 
-// Route to get an audit template by ID
-router.get('/audit-template/:id', getAuditTemplateById);
-
+router.post("/register",userRegistration);
+router.post("/login",userLogin);
 // Route to fill out or create a new audit form
 router.post('/audit-form/:id', fillOrCreateAuditForm);
 
+// Route to get an audit template by ID
+router.get('/audit-template/:id', getAuditTemplateById);
 // Route to get all audit forms filled by a specific user
 router.get('/user-audit-forms/:userId', getUserFilledAuditForms);
-
 // Route to get a specific version of an audit form
 router.get('/audit-form/:id/version/:version', getAuditFormVersionById);
 

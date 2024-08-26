@@ -40,7 +40,7 @@ const auditSchema = new Schema({
     sections: [sectionSchema],
     status:{
         type:String,
-        enum:["FILLED","NOT FILLEd"],
+        enum:["FILLED","NOT FILLED"],
     },
     version:Number
 }, { timestamps: true });
