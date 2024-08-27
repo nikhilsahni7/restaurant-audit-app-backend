@@ -222,15 +222,13 @@ const generateCoverPage = (doc, auditForm) => {
     { width: 500 }
   );
 
-  doc.fontSize(16).text("HACCP RE-CERTIFICATION", 50, 400, { align: "center" });
-  doc.fontSize(10).text("CAC/RCP 1-1969, Rev. 4-2003", { align: "center" });
+  doc.fontSize(24).text("HACCP RE-CERTIFICATION", 50, 400, { align: "center" });
+  doc.fontSize(12).text("CAC/RCP 1-1969, Rev. 4-2003", { align: "center" });
   doc.text("Doc No: QMSPL_F/9.2_F13", { align: "center" });
   doc.moveDown();
-  doc.fontSize(14).text("CONFIDENTIAL", { align: "center" });
+  doc.fontSize(18).text("CONFIDENTIAL", { align: "center" });
   doc.moveDown(2);
-  doc
-    .fontSize(12)
-    .text(`ISSUED TO: ${auditForm.nameOfCompany}`, { align: "left" });
+  doc.fontSize(14).text(`ISSUED TO: ${auditForm.nameOfCompany}`, 50, 650);
 
   // Quantus logo (smaller version)
   doc.image(
@@ -276,37 +274,35 @@ const generateCompanyInfoPage = (doc, auditForm) => {
   );
   drawTableRow("Site Address", auditForm.siteAddress, 3);
   drawTableRow("State", auditForm.state, 4, true);
-  drawTableRow("Pin Code", auditForm.pinCode, 4, true);
-  drawTableRow("Phone No.:", auditForm.phoneNo, 5);
-  drawTableRow("Website:", auditForm.website, 5);
-  drawTableRow("E mail:", auditForm.email, 6, true);
-  drawTableRow("Audit Team:", auditForm.auditTeam.join(", "), 7);
-  drawTableRow("Audit Type:", auditForm.auditType, 7);
+  drawTableRow("Pin Code", auditForm.pinCode, 5);
+  drawTableRow("Phone No.:", auditForm.phoneNo, 6, true);
+  drawTableRow("Website:", auditForm.website, 7);
+  drawTableRow("E mail:", auditForm.email, 8, true);
+  drawTableRow("Audit Team:", auditForm.auditTeam.join(", "), 9);
+  drawTableRow("Audit Type:", auditForm.auditType, 10, true);
   drawTableRow(
     "Date of Audit:",
     new Date(auditForm.dateOfAudit).toLocaleDateString(),
-    8,
-    true
+    11
   );
-  drawTableRow("Audit Criteria:", auditForm.auditCriteria, 9);
-  drawTableRow("Type of Audit:", auditForm.typeOfAudit, 10, true);
-  drawTableRow("Scope", auditForm.scope, 11);
+  drawTableRow("Audit Criteria:", auditForm.auditCriteria, 12, true);
+  drawTableRow("Type of Audit:", auditForm.typeOfAudit, 13);
+  drawTableRow("Scope", auditForm.scope, 14, true);
   drawTableRow(
     "Manpower",
     `Male: ${auditForm.manpower.male}, Female: ${auditForm.manpower.female}`,
-    12,
-    true
+    15
   );
 
   // Add checkbox for Annual audit
-  doc.rect(tableLeft, tableTop + 13 * rowHeight, 15, 15).stroke();
+  doc.rect(tableLeft, tableTop + 16 * rowHeight, 15, 15).stroke();
   if (auditForm.typeOfAudit === "Annual audit") {
     doc.fillAndStroke("black");
     doc
       .fillColor("black")
-      .text("✓", tableLeft + 2, tableTop + 13 * rowHeight + 2);
+      .text("✓", tableLeft + 2, tableTop + 16 * rowHeight + 2);
   }
-  doc.text("Annual audit", tableLeft + 20, tableTop + 13 * rowHeight + 3);
+  doc.text("Annual audit", tableLeft + 20, tableTop + 16 * rowHeight + 3);
 };
 
 const generateAuditChecklist = (doc, auditForm) => {
@@ -390,46 +386,63 @@ const generateAuditChecklist = (doc, auditForm) => {
 };
 
 const generateFinalPage = (doc) => {
+  // "END" text at the top
   doc
     .fontSize(12)
-    .text("***************END***************", { align: "center" });
-  doc.moveDown();
+    .text("***************END***************", 50, 50, { align: "center" });
 
   // GO GREEN logo
   doc.image(
     "/home/nikhil-sahni/Coding/restaurant-audit-backend/backend/src/server/gogreen.png",
     250,
-    300,
+    100,
     { width: 100 }
   );
 
+  // Green text
   doc
     .fillColor("green")
     .fontSize(10)
     .text(
-      "Don't Print this Quotation unless required!! Save paper!! Save trees!! Go Green!!",
+      "Don't Print this Quotation unless required!! Save paper!! Save trees!! Go Green!",
+      50,
+      220,
       { align: "center" }
     );
-  doc.fillColor("green").text("Save the Country!!!", { align: "center" });
-  doc.moveDown();
+  doc
+    .fillColor("green")
+    .text("Save the Country!!!", 50, 235, { align: "center" });
 
+  // Disclaimer
   doc
     .fillColor("black")
     .fontSize(10)
-    .text("Disclaimer", { align: "center", underline: true });
+    .text("Disclaimer", 50, 270, { align: "center", underline: true });
   doc
     .fontSize(8)
     .text(
       "This report is made solely on the basis of your instructions and/or information and materials supplied by you. It is not intended to be a recommendation for any particular course of action. Quantus does not accept a duty of care or any other responsibility to any person other than the Client in respect of this report and only to the extent agreed in the relevant contract.",
-      { align: "justify" }
+      50,
+      290,
+      { align: "justify", width: 500 }
     );
 
-  // Quantus logo (larger  version)
+  // Additional disclaimer text
+  doc
+    .fontSize(8)
+    .text(
+      "accepts liability to the Client insofar as is expressly contained in the terms and conditions governing Quantus' provision of services to you. Quantus makes no warranties or representations either express or implied with respect to the functionality or use of this report. As we aim to ensure that the facts we use in our reports are correct, we review on a diligent and careful basis and we do not accept any liability to you for any loss arising out of or in connection with this report, in contract, tort, by statute or otherwise, except in the event of our gross negligence or willful misconduct.",
+      50,
+      350,
+      { align: "justify", width: 500 }
+    );
+
+  // Quantus logo at the bottom
   doc.image(
     "/home/nikhil-sahni/Coding/restaurant-audit-backend/backend/src/server/quantus.png",
-    250,
+    50,
     700,
-    { width: 100 }
+    { width: 200 }
   );
 };
 
