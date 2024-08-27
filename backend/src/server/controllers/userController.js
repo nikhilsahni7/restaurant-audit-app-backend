@@ -1,291 +1,493 @@
-import PDFDocument from 'pdfkit';
-import fs from 'fs';
-import path from 'path';
-import Audit from '../models/TaskModel.js';
-import AuditVersion from '../models/PdfModel.js';
-import asyncHandler from 'express-async-handler';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import User from '../models/UserModel.js'; 
-import dotenv from 'dotenv'
+import PDFDocument from "pdfkit";
+import fs from "fs";
+import path from "path";
+import Audit from "../models/TaskModel.js";
+import AuditVersion from "../models/PdfModel.js";
+import asyncHandler from "express-async-handler";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import User from "../models/UserModel.js";
+import dotenv from "dotenv";
 
 dotenv.config();
 
 export const userRegistration = asyncHandler(async (req, res) => {
-    try{
+  try {
+    const { name, email, phoneNumber, password } = req.body;
 
-        const { name, email, phoneNumber, password } = req.body;
-    
-        // Check if user already exists
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
-        }
-    
-        // Hash password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-    
-        // Create new user
-        const user = new User({
-            name,
-            email,
-            phoneNumber,
-            password: hashedPassword
-        });
-    
-        const savedUser = await user.save();
-    
-        // Create JWT token
-        const token = jwt.sign({ userId: savedUser._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    
-        res.status(201).json({
-            message: 'User registered successfully',
-            token,
-            userId: savedUser._id,
-            name: savedUser.name,
-            email: savedUser.email,
-            phoneNumber: savedUser.phoneNumber
-        });
-    }catch(err){
-        return res.status(500).json({message:`Internal Server Error ${err}`})
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
     }
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create new user
+    const user = new User({
+      name,
+      email,
+      phoneNumber,
+      password: hashedPassword,
+    });
+
+    const savedUser = await user.save();
+
+    // Create JWT token
+    const token = jwt.sign({ userId: savedUser._id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
+
+    res.status(201).json({
+      message: "User registered successfully",
+      token,
+      userId: savedUser._id,
+      name: savedUser.name,
+      email: savedUser.email,
+      phoneNumber: savedUser.phoneNumber,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: `Internal Server Error ${err}` });
+  }
 });
 
 export const userLogin = asyncHandler(async (req, res) => {
-    try{
+  try {
     const { email, password } = req.body;
 
     // Check if user exists
     const user = await User.findOne({ email });
     if (!user) {
-        return res.status(400).json({ message: 'Invalid email or password' });
+      return res.status(400).json({ message: "Invalid email or password" });
     }
 
     // Validate password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-        return res.status(400).json({ message: 'Invalid email or password' });
+      return res.status(400).json({ message: "Invalid email or password" });
     }
 
     // Create JWT token
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "30d",
+    });
 
     res.json({
-        message: 'User logged in successfully',
-        token,
-        userId: user._id,
-        name: user.name,
-        email: user.email,
-        phoneNumber: user.phoneNumber
+      message: "User logged in successfully",
+      token,
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
     });
-}catch(err){
-    return res.status(500).json({message:`Internal Server Error ${err}`})
-}
-    
+  } catch (err) {
+    return res.status(500).json({ message: `Internal Server Error ${err}` });
+  }
 });
 
 // Fetch an audit template by ID (for users to fill out)
 export const getAuditTemplateById = asyncHandler(async (req, res) => {
-    try {
-        const template = await Audit.findById(req.params.id);
-        if (!template) {
-            return res.status(404).json({ message: 'Audit template not found' });
-        }
-        res.status(200).json(template);
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to fetch audit template', error: error.message });
+  try {
+    const template = await Audit.findById(req.params.id);
+    if (!template) {
+      return res.status(404).json({ message: "Audit template not found" });
     }
+    res.status(200).json(template);
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to fetch audit template",
+      error: error.message,
+    });
+  }
 });
 
 export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
-    try {
-        const { id } = req.params; // Template ID to fetch default values
-        const { 
-            userId, 
-            nameOfCompany,
-            fssaiLicenseNo,
-            companyRepresentatives,
-            siteAddress,
-            state,
-            pinCode,
-            phoneNo,
-            email,
-            website,
-            auditTeam,
-            dateOfAudit, 
-            auditType, 
-            auditCriteria, 
-            typeOfAudit, 
-            scope, 
-            manpower,
-            sections
-        } = req.body;
+  try {
+    const { id } = req.params; // Template ID to fetch default values
+    const {
+      userId,
+      nameOfCompany,
+      fssaiLicenseNo,
+      companyRepresentatives,
+      siteAddress,
+      state,
+      pinCode,
+      phoneNo,
+      email,
+      website,
+      auditTeam,
+      dateOfAudit,
+      auditType,
+      auditCriteria,
+      typeOfAudit,
+      scope,
+      manpower,
+      sections,
+    } = req.body;
 
-        // Find the existing audit template
-        const template = await Audit.findById(id);
-        if (!template) {
-            return res.status(404).json({ message: 'Audit template not found' });
-        }
-
-        // Create a new audit form entry
-        const newAuditForm = new Audit({
-            userId,
-            restaurantName: template.restaurantName, // Use template's restaurant name
-            nameOfCompany,
-            fssaiLicenseNo,
-            companyRepresentatives,
-            siteAddress,
-            state,
-            pinCode,
-            phoneNo,
-            email,
-            website,
-            auditTeam,
-            dateOfAudit,
-            auditType,
-            auditCriteria,
-            typeOfAudit,
-            scope,
-            manpower,
-            sections,
-            status: 'FILLED',
-            version: (template.version || 0) + 1, // Increment version based on previous template
-        });
-
-        const savedAuditForm = await newAuditForm.save();
-
-        // Generate PDF
-        const pdfPath = await generateAuditPdf(savedAuditForm);
-
-        // Save version control information
-        const auditVersion = new AuditVersion({
-            userId,
-            formId: savedAuditForm._id,
-            versionNumber: savedAuditForm.version,
-            pdfPath
-        });
-
-        await auditVersion.save();
-
-        res.status(201).json({
-            message: 'Audit form created successfully',
-            auditForm: savedAuditForm,
-            pdfPath: pdfPath
-        });
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to create audit form', error: error.message });
+    // Find the existing audit template
+    const template = await Audit.findById(id);
+    if (!template) {
+      return res.status(404).json({ message: "Audit template not found" });
     }
+
+    // Create a new audit form entry
+    const newAuditForm = new Audit({
+      userId,
+      restaurantName: template.restaurantName, // Use template's restaurant name
+      nameOfCompany,
+      fssaiLicenseNo,
+      companyRepresentatives,
+      siteAddress,
+      state,
+      pinCode,
+      phoneNo,
+      email,
+      website,
+      auditTeam,
+      dateOfAudit,
+      auditType,
+      auditCriteria,
+      typeOfAudit,
+      scope,
+      manpower,
+      sections,
+      status: "FILLED",
+      version: (template.version || 0) + 1, // Increment version based on previous template
+    });
+
+    const savedAuditForm = await newAuditForm.save();
+
+    // Generate PDF
+    const pdfPath = await generateAuditPdf(savedAuditForm);
+
+    // Save version control information
+    const auditVersion = new AuditVersion({
+      userId,
+      formId: savedAuditForm._id,
+      versionNumber: savedAuditForm.version,
+      pdfPath,
+    });
+
+    await auditVersion.save();
+
+    res.status(201).json({
+      message: "Audit form created successfully",
+      auditForm: savedAuditForm,
+      pdfPath: pdfPath,
+    });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Failed to create audit form", error: error.message });
+  }
 });
 
 const generateAuditPdf = async (auditForm) => {
+  const doc = new PDFDocument({ margin: 50, size: "A4" });
+  const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
+  const pdfPath = path.join("../pdf", "..", "pdfs", pdfName);
 
-    const doc = new PDFDocument({ margin: 50 });
-    const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
-    const pdfPath = path.join("../pdf", '..', 'pdfs', pdfName);
+  fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+  doc.pipe(fs.createWriteStream(pdfPath));
 
-    // Ensure the directory exists
-    fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+  generateCoverPage(doc, auditForm);
+  doc.addPage();
+  generateCompanyInfoPage(doc, auditForm);
+  doc.addPage();
+  generateAuditChecklist(doc, auditForm);
+  doc.addPage();
+  generateFinalPage(doc);
 
-    // Write PDF to file
-    doc.pipe(fs.createWriteStream(pdfPath));
-
-    // Header
-    doc.fontSize(16).text('HACCP RE-CERTIFICATION', { align: 'center' });
-    doc.fontSize(10).text('CAC/RCP 1-1969, Rev. 4-2003', { align: 'center' });
-    doc.text('Doc No: QMSPL_F/9.2_F13', { align: 'center' });
-    doc.text('CONFIDENTIAL', { align: 'center' });
-    doc.moveDown();
-
-    // Company Information
-    doc.fontSize(12).text('ISSUED TO: ' + auditForm.nameOfCompany, { align: 'left' });
-    doc.moveDown();
-
-    // Create a simple table
-    const tableData = [
-        ['Name of Company', auditForm.nameOfCompany],
-        ['FSSAI License No.', auditForm.fssaiLicenseNo],
-        ['Company Representative', auditForm.companyRepresentatives.join(', ')],
-        ['Site Address', auditForm.siteAddress],
-        ['State', auditForm.state],
-        ['Pin Code', auditForm.pinCode],
-        ['Phone No.', auditForm.phoneNo],
-        ['Website', auditForm.website],
-        ['E mail', auditForm.email],
-        ['Audit Team', auditForm.auditTeam.join(', ')],
-        ['Date of Audit', new Date(auditForm.dateOfAudit).toLocaleDateString()],
-        ['Audit Type', auditForm.auditType],
-        ['Audit Criteria', auditForm.auditCriteria],
-        ['Type of Audit', auditForm.typeOfAudit],
-        ['Scope', auditForm.scope],
-        ['Manpower', `Male: ${auditForm.manpower.male}, Female: ${auditForm.manpower.female}`]
-    ];
-
-    const startX = 50;
-    let startY = doc.y;
-    const cellPadding = 5;
-    const cellWidth = 250;
-    const cellHeight = 20;
-
-    tableData.forEach((row, rowIndex) => {
-        doc.font('Helvetica-Bold').fontSize(10)
-           .text(row[0], startX, startY + rowIndex * cellHeight + cellPadding, { width: cellWidth });
-        
-        doc.font('Helvetica').fontSize(10)
-           .text(row[1], startX + cellWidth, startY + rowIndex * cellHeight + cellPadding, { width: cellWidth });
-        
-        doc.rect(startX, startY + rowIndex * cellHeight, cellWidth, cellHeight).stroke();
-        doc.rect(startX + cellWidth, startY + rowIndex * cellHeight, cellWidth, cellHeight).stroke();
-    });
-
-    doc.moveDown();
-
-    // ... (rest of the code remains the same)
-
-    doc.end();
-    return pdfPath;
+  doc.end();
+  return pdfPath;
 };
 
+const generateCoverPage = (doc, auditForm) => {
+  // HACCP diagram
+  doc.image(
+    "/home/nikhil-sahni/Coding/restaurant-audit-backend/backend/src/server/hacpp.png",
+    50,
+    50,
+    { width: 500 }
+  );
+
+  // Quantus logo (larger version)
+  doc.image(
+    "/home/nikhil-sahni/Coding/restaurant-audit-backend/backend/src/server/quantus.png",
+    50,
+    250,
+    { width: 500 }
+  );
+
+  doc.fontSize(16).text("HACCP RE-CERTIFICATION", 50, 400, { align: "center" });
+  doc.fontSize(10).text("CAC/RCP 1-1969, Rev. 4-2003", { align: "center" });
+  doc.text("Doc No: QMSPL_F/9.2_F13", { align: "center" });
+  doc.moveDown();
+  doc.fontSize(14).text("CONFIDENTIAL", { align: "center" });
+  doc.moveDown(2);
+  doc
+    .fontSize(12)
+    .text(`ISSUED TO: ${auditForm.nameOfCompany}`, { align: "left" });
+
+  // Quantus logo (smaller version)
+  doc.image(
+    "/home/nikhil-sahni/Coding/restaurant-audit-backend/backend/src/server/quantus-smaller.png",
+    250,
+    700,
+    { width: 100 }
+  );
+};
+
+const generateCompanyInfoPage = (doc, auditForm) => {
+  const tableTop = 50;
+  const tableLeft = 50;
+  const columnWidth = 250;
+  const rowHeight = 25;
+
+  const drawTableRow = (text, value, rowIndex, isGray = false) => {
+    const y = tableTop + rowIndex * rowHeight;
+    if (isGray) {
+      doc
+        .fillColor("#e0e0e0")
+        .rect(tableLeft, y, columnWidth * 2, rowHeight)
+        .fill();
+    }
+    doc.fillColor("black").stroke();
+    doc.rect(tableLeft, y, columnWidth, rowHeight).stroke();
+    doc.rect(tableLeft + columnWidth, y, columnWidth, rowHeight).stroke();
+    doc
+      .fontSize(10)
+      .text(text, tableLeft + 5, y + 7, { width: columnWidth - 10 });
+    doc.text(value, tableLeft + columnWidth + 5, y + 7, {
+      width: columnWidth - 10,
+    });
+  };
+
+  drawTableRow("Name of Company", auditForm.nameOfCompany, 0, true);
+  drawTableRow("FSSAI License No.", auditForm.fssaiLicenseNo, 1);
+  drawTableRow(
+    "Company Representative",
+    auditForm.companyRepresentatives.join(", "),
+    2,
+    true
+  );
+  drawTableRow("Site Address", auditForm.siteAddress, 3);
+  drawTableRow("State", auditForm.state, 4, true);
+  drawTableRow("Pin Code", auditForm.pinCode, 4, true);
+  drawTableRow("Phone No.:", auditForm.phoneNo, 5);
+  drawTableRow("Website:", auditForm.website, 5);
+  drawTableRow("E mail:", auditForm.email, 6, true);
+  drawTableRow("Audit Team:", auditForm.auditTeam.join(", "), 7);
+  drawTableRow("Audit Type:", auditForm.auditType, 7);
+  drawTableRow(
+    "Date of Audit:",
+    new Date(auditForm.dateOfAudit).toLocaleDateString(),
+    8,
+    true
+  );
+  drawTableRow("Audit Criteria:", auditForm.auditCriteria, 9);
+  drawTableRow("Type of Audit:", auditForm.typeOfAudit, 10, true);
+  drawTableRow("Scope", auditForm.scope, 11);
+  drawTableRow(
+    "Manpower",
+    `Male: ${auditForm.manpower.male}, Female: ${auditForm.manpower.female}`,
+    12,
+    true
+  );
+
+  // Add checkbox for Annual audit
+  doc.rect(tableLeft, tableTop + 13 * rowHeight, 15, 15).stroke();
+  if (auditForm.typeOfAudit === "Annual audit") {
+    doc.fillAndStroke("black");
+    doc
+      .fillColor("black")
+      .text("✓", tableLeft + 2, tableTop + 13 * rowHeight + 2);
+  }
+  doc.text("Annual audit", tableLeft + 20, tableTop + 13 * rowHeight + 3);
+};
+
+const generateAuditChecklist = (doc, auditForm) => {
+  auditForm.sections.forEach((section, sectionIndex) => {
+    if (sectionIndex > 0) doc.addPage();
+
+    doc.fontSize(14).text(section.sectionTitle, { underline: true });
+    doc.moveDown();
+
+    const tableTop = doc.y;
+    const tableLeft = 50;
+    const columnWidths = [250, 100, 200];
+    const rowHeight = 30;
+
+    // Table header
+    doc.rect(tableLeft, tableTop, sum(columnWidths), rowHeight).stroke();
+    doc
+      .fontSize(10)
+      .text("Requirements & Guidelines", tableLeft + 5, tableTop + 5, {
+        width: columnWidths[0] - 10,
+      });
+    doc.text("Compliance", tableLeft + columnWidths[0] + 5, tableTop + 5, {
+      width: columnWidths[1] - 10,
+    });
+    doc.text(
+      "Evidence & Comments",
+      tableLeft + columnWidths[0] + columnWidths[1] + 5,
+      tableTop + 5,
+      { width: columnWidths[2] - 10 }
+    );
+
+    let currentY = tableTop + rowHeight;
+
+    section.questions.forEach((question, index) => {
+      const rowHeight = Math.max(
+        calculateTextHeight(doc, question.question, columnWidths[0]),
+        calculateTextHeight(doc, question.evidenceAndComments, columnWidths[2])
+      );
+
+      // Question
+      doc.rect(tableLeft, currentY, columnWidths[0], rowHeight).stroke();
+      doc.text(question.question, tableLeft + 5, currentY + 5, {
+        width: columnWidths[0] - 10,
+      });
+
+      // Compliance
+      doc
+        .rect(tableLeft + columnWidths[0], currentY, columnWidths[1], rowHeight)
+        .stroke();
+      doc.text(
+        question.compliance,
+        tableLeft + columnWidths[0] + 5,
+        currentY + 5,
+        { width: columnWidths[1] - 10 }
+      );
+
+      // Evidence & Comments
+      doc
+        .rect(
+          tableLeft + columnWidths[0] + columnWidths[1],
+          currentY,
+          columnWidths[2],
+          rowHeight
+        )
+        .stroke();
+      doc.text(
+        question.evidenceAndComments,
+        tableLeft + columnWidths[0] + columnWidths[1] + 5,
+        currentY + 5,
+        { width: columnWidths[2] - 10 }
+      );
+
+      currentY += rowHeight;
+
+      if (currentY > 700) {
+        doc.addPage();
+        currentY = 50;
+      }
+    });
+  });
+};
+
+const generateFinalPage = (doc) => {
+  doc
+    .fontSize(12)
+    .text("***************END***************", { align: "center" });
+  doc.moveDown();
+
+  // GO GREEN logo
+  doc.image(
+    "/home/nikhil-sahni/Coding/restaurant-audit-backend/backend/src/server/gogreen.png",
+    250,
+    300,
+    { width: 100 }
+  );
+
+  doc
+    .fillColor("green")
+    .fontSize(10)
+    .text(
+      "Don't Print this Quotation unless required!! Save paper!! Save trees!! Go Green!!",
+      { align: "center" }
+    );
+  doc.fillColor("green").text("Save the Country!!!", { align: "center" });
+  doc.moveDown();
+
+  doc
+    .fillColor("black")
+    .fontSize(10)
+    .text("Disclaimer", { align: "center", underline: true });
+  doc
+    .fontSize(8)
+    .text(
+      "This report is made solely on the basis of your instructions and/or information and materials supplied by you. It is not intended to be a recommendation for any particular course of action. Quantus does not accept a duty of care or any other responsibility to any person other than the Client in respect of this report and only to the extent agreed in the relevant contract.",
+      { align: "justify" }
+    );
+
+  // Quantus logo (larger  version)
+  doc.image(
+    "/home/nikhil-sahni/Coding/restaurant-audit-backend/backend/src/server/quantus.png",
+    250,
+    700,
+    { width: 100 }
+  );
+};
+
+const calculateTextHeight = (doc, text, width) => {
+  const lines = doc.widthOfString(text, { width }) / width;
+  return Math.max(lines * 14, 30);
+};
+
+const sum = (arr) => arr.reduce((a, b) => a + b, 0);
+
+export default generateAuditPdf;
 // Fetch all audit forms filled by a specific user
 export const getUserFilledAuditForms = asyncHandler(async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const templates = await Audit.find({ userId });
+  try {
+    const { userId } = req.params;
+    const templates = await Audit.find({ userId });
 
-        res.status(200).json(templates);
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to fetch audit forms', error: error.message });
-    }
+    res.status(200).json(templates);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Failed to fetch audit forms", error: error.message });
+  }
 });
 
 // Fetch a specific version of an audit form filled by a user
 export const getAuditFormVersionById = asyncHandler(async (req, res) => {
-    try {
-        const { id, version } = req.params;
-        const template = await Audit.findOne({ _id: id, version: version });
+  try {
+    const { id, version } = req.params;
+    const template = await Audit.findOne({ _id: id, version: version });
 
-        if (!template) {
-            return res.status(404).json({ message: 'Audit form version not found' });
-        }
-
-        res.status(200).json(template);
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to fetch audit form version', error: error.message });
+    if (!template) {
+      return res.status(404).json({ message: "Audit form version not found" });
     }
+
+    res.status(200).json(template);
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to fetch audit form version",
+      error: error.message,
+    });
+  }
 });
 
 // Delete an audit form filled by a user
 export const deleteAuditForm = asyncHandler(async (req, res) => {
-    try {
-        const { id } = req.params;
-        const deletedTemplate = await Audit.findByIdAndDelete(id);
+  try {
+    const { id } = req.params;
+    const deletedTemplate = await Audit.findByIdAndDelete(id);
 
-        if (!deletedTemplate) {
-            return res.status(404).json({ message: 'Audit form not found' });
-        }
-
-        res.status(200).json({ message: 'Audit form deleted successfully' });
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to delete audit form', error: error.message });
+    if (!deletedTemplate) {
+      return res.status(404).json({ message: "Audit form not found" });
     }
+
+    res.status(200).json({ message: "Audit form deleted successfully" });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Failed to delete audit form", error: error.message });
+  }
 });
