@@ -4,16 +4,12 @@ const questionSchema = new Schema({
     question: String,
     compliance: {
         type: String,
-        enum: ['Y', 'N', 'NI', 'N/A'], // Compliance options
+        enum: ['Y', 'N', 'NI', 'N/A'], 
     },
     evidenceAndComments: String,
     image:String
 }, { _id: false });
 
-const sectionSchema = new Schema({
-    sectionTitle: String,
-    questions: [questionSchema]
-}, { _id: false });
 
 const auditSchema = new Schema({
     userId:String,
@@ -37,7 +33,7 @@ const auditSchema = new Schema({
         male: Number,
         female: Number
     },
-    sections: [sectionSchema],
+    sections: [questionSchema],
     status:{
         type:String,
         enum:["FILLED","NOT FILLED"],

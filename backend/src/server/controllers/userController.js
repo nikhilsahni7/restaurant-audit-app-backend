@@ -188,101 +188,134 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
 });
 
 const generateAuditPdf = async (auditForm) => {
-  const templatePath =
-    "/home/nikhil-sahni/Coding/restaurant-audit-backend/backend/src/server/templates/audit-form.pdf";
-  const templatePdfBytes = await fs.readFile(templatePath);
+  try {
+    const templatePath = "C:/Users/Vishal sharma/OneDrive/Desktop/restaurant/rest-2/restaurant-audit-app-backend/backend/src/server/templates/template.pdf";
+    const templatePdfBytes = await fs.readFile(templatePath);
+    const pdfDoc = await PDFDocument.load(templatePdfBytes);
 
-  // Load the PDF document
-  const pdfDoc = await PDFDocument.load(templatePdfBytes);
+    // Get the form from the document
+    const form = pdfDoc.getForm();
 
-  // Get the form from the document
-  const form = pdfDoc.getForm();
+    // Define field mappings
+    const fieldMappings = {
+      cn: auditForm.nameOfCompany,
+      fn: auditForm.fssaiLicenseNo,
+      cr: auditForm.companyRepresentatives.join(", "),
+      sa: auditForm.siteAddress,
+      s: auditForm.state,
+      pc: auditForm.pinCode,
+      text_8soit: auditForm.phoneNo,
+      w: auditForm.website,
+      em: auditForm.email,
+      at: auditForm.auditTeam.join(", "),
+      atp: auditForm.auditType,
+      ad: new Date(auditForm.dateOfAudit).toLocaleDateString(),
+      ac: auditForm.auditCriteria,
+      scp: auditForm.scope,
+      mc: auditForm.manpower.male.toString(),
+      fc: auditForm.manpower.female.toString()
+    };
 
-  // Fill in the static fields
-  fillStaticFields(form, auditForm);
-
-  // Fill in the dynamic sections
-  fillDynamicSections(form, auditForm.sections);
-
-  // Save the PDF
-  const pdfBytes = await pdfDoc.save();
-  const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
-  // Replace '/path/to/your/project/backend/pdfs' with your actual path
-  const pdfPath =
-    "/home/nikhil-sahni/Coding/restaurant-audit-backend/pdfs" + pdfName;
-
-  await fs.mkdir(path.dirname(pdfPath), { recursive: true });
-  await fs.writeFile(pdfPath, pdfBytes);
-
-  return pdfPath;
-};
-
-const fillStaticFields = (form, auditForm) => {
-  const fieldValues = [
-    auditForm.nameOfCompany,
-    auditForm.fssaiLicenseNo,
-    auditForm.companyRepresentatives.join(", "),
-    auditForm.siteAddress,
-    auditForm.state,
-    auditForm.pinCode,
-    auditForm.phoneNo,
-    auditForm.email,
-    auditForm.website,
-    auditForm.auditTeam.join(", "),
-    new Date(auditForm.dateOfAudit).toLocaleDateString(),
-    auditForm.auditType,
-    auditForm.auditCriteria,
-    auditForm.typeOfAudit,
-    auditForm.scope,
-    `Male: ${auditForm.manpower.male}, Female: ${auditForm.manpower.female}`,
-  ];
-
-  const fields = form.getFields();
-  fields.forEach((field, index) => {
-    if (field instanceof PDFTextField && index < fieldValues.length) {
-      field.setText(fieldValues[index]);
-    }
-  });
-};
-
-const fillDynamicSections = (form, sections) => {
-  const fields = form.getFields();
-  let fieldIndex = 16; // Start after the static fields
-
-  sections.forEach((section) => {
-    if (
-      fieldIndex < fields.length &&
-      fields[fieldIndex] instanceof PDFTextField
-    ) {
-      fields[fieldIndex].setText(section.sectionTitle);
-      fieldIndex++;
-    }
-
-    section.questions.forEach((question) => {
-      if (
-        fieldIndex < fields.length &&
-        fields[fieldIndex] instanceof PDFTextField
-      ) {
-        fields[fieldIndex].setText(question.question);
-        fieldIndex++;
-      }
-      if (
-        fieldIndex < fields.length &&
-        fields[fieldIndex] instanceof PDFTextField
-      ) {
-        fields[fieldIndex].setText(question.compliance);
-        fieldIndex++;
-      }
-      if (
-        fieldIndex < fields.length &&
-        fields[fieldIndex] instanceof PDFTextField
-      ) {
-        fields[fieldIndex].setText(question.evidenceAndComments);
-        fieldIndex++;
+    // Fill in the text fields
+    Object.entries(fieldMappings).forEach(([fieldName, value]) => {
+      const field = form.getTextField(fieldName);
+      if (field) {
+        field.setText(value);
       }
     });
-  });
+
+    // Handle checkboxes
+    const patCheckbox = form.getCheckBox('pat');
+    const aatCheckbox = form.getCheckBox('aat');
+    
+    if (patCheckbox) {
+      auditForm.typeOfAudit === 'Pre Assessment' ? patCheckbox.check() : patCheckbox.uncheck();
+    }
+    if (aatCheckbox) {
+      auditForm.typeOfAudit === 'Annual audit' ? aatCheckbox.check() : aatCheckbox.uncheck();
+    }
+    form.flatten();
+    // Save the PDF
+    const pdfBytes = await pdfDoc.save();
+    const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
+    const pdfPath = path.join("C:/Users/Vishal sharma/OneDrive/Desktop/restaurant/rest-2/restaurant-audit-app-backend/pdfs", pdfName);
+
+    await fs.mkdir(path.dirname(pdfPath), { recursive: true });
+    await fs.writeFile(pdfPath, pdfBytes);
+
+    return pdfPath;
+  } catch (error) {
+    console.error("Error generating PDF:", error);
+    throw error;
+  }
 };
+
+// const fillStaticFields = (form, auditForm) => {
+//   const fieldValues = [
+//     auditForm.nameOfCompany,
+//     auditForm.fssaiLicenseNo,
+//     auditForm.companyRepresentatives.join(", "),
+//     auditForm.siteAddress,
+//     auditForm.state,
+//     auditForm.pinCode,
+//     auditForm.phoneNo,
+//     auditForm.email,
+//     auditForm.website,
+//     auditForm.auditTeam.join(", "),
+//     new Date(auditForm.dateOfAudit).toLocaleDateString(),
+//     auditForm.auditType,
+//     auditForm.auditCriteria,
+//     auditForm.typeOfAudit,
+//     auditForm.scope,
+//     `Male: ${auditForm.manpower.male}, Female: ${auditForm.manpower.female}`,
+//   ];
+
+//   const fields = form.getFields();
+//   fields.forEach((field, index) => {
+//     if (field instanceof PDFTextField && index < fieldValues.length) {
+//       field.setText(fieldValues[index]);
+//     }
+//   });
+// };
+
+// const fillDynamicSections = (form, sections) => {
+//   const fields = form.getFields();
+//   let fieldIndex = 16; // Start after the static fields
+
+//   sections.forEach((section) => {
+//     if (
+//       fieldIndex < fields.length &&
+//       fields[fieldIndex] instanceof PDFTextField
+//     ) {
+//       fields[fieldIndex].setText(section.sectionTitle);
+//       fieldIndex++;
+//     }
+
+//     section.questions.forEach((question) => {
+//       if (
+//         fieldIndex < fields.length &&
+//         fields[fieldIndex] instanceof PDFTextField
+//       ) {
+//         fields[fieldIndex].setText(question.question);
+//         fieldIndex++;
+//       }
+//       if (
+//         fieldIndex < fields.length &&
+//         fields[fieldIndex] instanceof PDFTextField
+//       ) {
+//         fields[fieldIndex].setText(question.compliance);
+//         fieldIndex++;
+//       }
+//       if (
+//         fieldIndex < fields.length &&
+//         fields[fieldIndex] instanceof PDFTextField
+//       ) {
+//         fields[fieldIndex].setText(question.evidenceAndComments);
+//         fieldIndex++;
+//       }
+//     });
+//   });
+// };
 
 export const getUserFilledAuditForms = asyncHandler(async (req, res) => {
   try {
