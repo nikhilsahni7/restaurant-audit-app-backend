@@ -1,4 +1,5 @@
 import { PDFDocument, PDFTextField, PDFForm } from "pdf-lib";
+import uploadPdfToS3 from "../utils/pdfUploader.js";
 import { promises as fs } from "fs";
 import path from "path";
 import Audit from "../models/TaskModel.js";
@@ -105,7 +106,6 @@ export const getAuditTemplateById = asyncHandler(async (req, res) => {
 
 export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
   try {
-    const { id } = req.params; // Template ID to fetch default values
     const {
       userId,
       nameOfCompany,
@@ -128,7 +128,7 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
     } = req.body;
 
     // Find the existing audit template
-    const template = await Audit.findById(id);
+    const template = await Audit.findById("66d20424946495897592bd0c");
     if (!template) {
       return res.status(404).json({ message: "Audit template not found" });
     }
@@ -162,7 +162,6 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
 
     // Generate PDF
     const pdfPath = await generateAuditPdf(savedAuditForm);
-
     // Save version control information
     const auditVersion = new AuditVersion({
       userId,
@@ -175,7 +174,6 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
 
     res.status(201).json({
       message: "Audit form created successfully",
-      auditForm: savedAuditForm,
       pdfPath: pdfPath,
     });
   } catch (error) {
@@ -187,9 +185,86 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
   }
 });
 
+export const updateAuditForm = asyncHandler(async (req, res) => {
+  try {
+    const { id } = req.params; 
+    const {
+      nameOfCompany,
+      fssaiLicenseNo,
+      companyRepresentatives,
+      siteAddress,
+      state,
+      pinCode,
+      phoneNo,
+      email,
+      website,
+      auditTeam,
+      dateOfAudit,
+      auditType,
+      auditCriteria,
+      typeOfAudit,
+      scope,
+      manpower,
+      sections,
+    } = req.body;
+
+    // Find the existing audit form
+    const existingAuditForm = await Audit.findById(id);
+    if (!existingAuditForm) {
+      return res.status(404).json({ message: "Audit form not found" });
+    }
+
+    // Update the audit form
+    existingAuditForm.nameOfCompany = nameOfCompany || existingAuditForm.nameOfCompany;
+    existingAuditForm.fssaiLicenseNo = fssaiLicenseNo || existingAuditForm.fssaiLicenseNo;
+    existingAuditForm.companyRepresentatives = companyRepresentatives || existingAuditForm.companyRepresentatives;
+    existingAuditForm.siteAddress = siteAddress || existingAuditForm.siteAddress;
+    existingAuditForm.state = state || existingAuditForm.state;
+    existingAuditForm.pinCode = pinCode || existingAuditForm.pinCode;
+    existingAuditForm.phoneNo = phoneNo || existingAuditForm.phoneNo;
+    existingAuditForm.email = email || existingAuditForm.email;
+    existingAuditForm.website = website || existingAuditForm.website;
+    existingAuditForm.auditTeam = auditTeam || existingAuditForm.auditTeam;
+    existingAuditForm.dateOfAudit = dateOfAudit || existingAuditForm.dateOfAudit;
+    existingAuditForm.auditType = auditType || existingAuditForm.auditType;
+    existingAuditForm.auditCriteria = auditCriteria || existingAuditForm.auditCriteria;
+    existingAuditForm.typeOfAudit = typeOfAudit || existingAuditForm.typeOfAudit;
+    existingAuditForm.scope = scope || existingAuditForm.scope;
+    existingAuditForm.manpower = manpower || existingAuditForm.manpower;
+    existingAuditForm.sections = sections || existingAuditForm.sections;
+    existingAuditForm.version += 1;
+
+    const updatedAuditForm = await existingAuditForm.save();
+
+    // Generate new PDF
+    const pdfPath = await generateAuditPdf(updatedAuditForm);
+
+    // Upload PDF to S3
+    const s3Url = await uploadPdfToS3(pdfPath, `Audit_Form_${updatedAuditForm._id}_v${updatedAuditForm.version}.pdf`);
+
+    // Save version control information
+    const auditVersion = new AuditVersion({
+      userId: updatedAuditForm.userId,
+      formId: updatedAuditForm._id,
+      versionNumber: updatedAuditForm.version,
+      pdfUrl: s3Url,
+    });
+    await auditVersion.save();
+
+    res.status(200).json({
+      message: "Audit form updated successfully",
+      pdfUrl: s3Url,
+    });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Failed to update audit form", error: error.message });
+  }
+});
+
 const generateAuditPdf = async (auditForm) => {
   try {
-    const templatePath = "C:/Users/Vishal sharma/OneDrive/Desktop/restaurant/rest-2/restaurant-audit-app-backend/backend/src/server/templates/template.pdf";
+    const templatePath = "/home/vishal-sharma/freelance/restaurant-audit-app-backend/backend/src/server/templates/template.pdf";
     const templatePdfBytes = await fs.readFile(templatePath);
     const pdfDoc = await PDFDocument.load(templatePdfBytes);
 
@@ -234,107 +309,82 @@ const generateAuditPdf = async (auditForm) => {
     if (aatCheckbox) {
       auditForm.typeOfAudit === 'Annual audit' ? aatCheckbox.check() : aatCheckbox.uncheck();
     }
+
+    // Fill in the dynamic fields (q1, q2, q3, etc.)
+    auditForm.sections.forEach((section, index) => {
+      const fieldName = `q${index + 1}`;
+      const field = form.getTextField(fieldName);
+      if (field) {
+        // For now, we'll use a sample string. In production, use the actual data:
+        field.setText(section.evidenceAndComments);
+        // field.setText(`Sample evidence and comments for question ${index + 1}`);
+      }
+    });
+
+    /* 
+    // Commented code for handling actual user data
+    auditForm.sections.forEach((section, index) => {
+      const fieldName = `q${index + 1}`;
+      const field = form.getTextField(fieldName);
+      if (field) {
+        field.setText(section.evidenceAndComments);
+      }
+    });
+    */
+
     form.flatten();
-    // Save the PDF
+
+    // Save the PDF locally
     const pdfBytes = await pdfDoc.save();
     const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
-    const pdfPath = path.join("C:/Users/Vishal sharma/OneDrive/Desktop/restaurant/rest-2/restaurant-audit-app-backend/pdfs", pdfName);
-
+    const pdfPath = path.join("/home/vishal-sharma/freelance/restaurant-audit-app-backend/pdfs", pdfName);
     await fs.mkdir(path.dirname(pdfPath), { recursive: true });
     await fs.writeFile(pdfPath, pdfBytes);
 
-    return pdfPath;
+    // Upload the PDF to S3
+    const s3Url = await uploadPdfToS3(pdfPath, pdfName);
+
+    // Optionally, delete the local file after uploading
+    await fs.unlink(pdfPath);
+
+    // Return the S3 URL
+    return s3Url;
+
   } catch (error) {
     console.error("Error generating PDF:", error);
     throw error;
   }
 };
 
-// const fillStaticFields = (form, auditForm) => {
-//   const fieldValues = [
-//     auditForm.nameOfCompany,
-//     auditForm.fssaiLicenseNo,
-//     auditForm.companyRepresentatives.join(", "),
-//     auditForm.siteAddress,
-//     auditForm.state,
-//     auditForm.pinCode,
-//     auditForm.phoneNo,
-//     auditForm.email,
-//     auditForm.website,
-//     auditForm.auditTeam.join(", "),
-//     new Date(auditForm.dateOfAudit).toLocaleDateString(),
-//     auditForm.auditType,
-//     auditForm.auditCriteria,
-//     auditForm.typeOfAudit,
-//     auditForm.scope,
-//     `Male: ${auditForm.manpower.male}, Female: ${auditForm.manpower.female}`,
-//   ];
-
-//   const fields = form.getFields();
-//   fields.forEach((field, index) => {
-//     if (field instanceof PDFTextField && index < fieldValues.length) {
-//       field.setText(fieldValues[index]);
-//     }
-//   });
-// };
-
-// const fillDynamicSections = (form, sections) => {
-//   const fields = form.getFields();
-//   let fieldIndex = 16; // Start after the static fields
-
-//   sections.forEach((section) => {
-//     if (
-//       fieldIndex < fields.length &&
-//       fields[fieldIndex] instanceof PDFTextField
-//     ) {
-//       fields[fieldIndex].setText(section.sectionTitle);
-//       fieldIndex++;
-//     }
-
-//     section.questions.forEach((question) => {
-//       if (
-//         fieldIndex < fields.length &&
-//         fields[fieldIndex] instanceof PDFTextField
-//       ) {
-//         fields[fieldIndex].setText(question.question);
-//         fieldIndex++;
-//       }
-//       if (
-//         fieldIndex < fields.length &&
-//         fields[fieldIndex] instanceof PDFTextField
-//       ) {
-//         fields[fieldIndex].setText(question.compliance);
-//         fieldIndex++;
-//       }
-//       if (
-//         fieldIndex < fields.length &&
-//         fields[fieldIndex] instanceof PDFTextField
-//       ) {
-//         fields[fieldIndex].setText(question.evidenceAndComments);
-//         fieldIndex++;
-//       }
-//     });
-//   });
-// };
-
 export const getUserFilledAuditForms = asyncHandler(async (req, res) => {
   try {
     const { userId } = req.params;
-    const templates = await Audit.find({ userId });
 
-    res.status(200).json(templates);
+    const filledTemplates = await Audit.find({ 
+      userId: userId, 
+      status: "FILLED" 
+    }).sort({ version: -1 }); // Sort by version in descending order
+
+    if (!filledTemplates.length) {
+      return res.status(404).json({ message: "No filled audit forms found for this user" });
+    }
+
+    res.status(200).json({
+      message: "Filled audit forms retrieved successfully",
+      templates: filledTemplates
+    });
   } catch (error) {
     res
       .status(500)
-      .json({ message: "Failed to fetch audit forms", error: error.message });
+      .json({ message: "Failed to fetch filled audit forms", error: error.message });
   }
 });
 
 // Fetch a specific version of an audit form filled by a user
 export const getAuditFormVersionById = asyncHandler(async (req, res) => {
   try {
-    const { id, version } = req.params;
-    const template = await Audit.findOne({ _id: id, version: version });
+    const { id} = req.params;
+    const template = await Audit.findOne({ _id: id});
 
     if (!template) {
       return res.status(404).json({ message: "Audit form version not found" });
@@ -364,5 +414,32 @@ export const deleteAuditForm = asyncHandler(async (req, res) => {
     res
       .status(500)
       .json({ message: "Failed to delete audit form", error: error.message });
+  }
+});
+
+export const getPdfPathForForm = asyncHandler(async (req, res) => {
+  try {
+    const { formId } = req.params;
+
+    // Find the latest version of the audit form
+    const latestVersion = await AuditVersion.findOne({ formId: formId })
+      .sort({ versionNumber: -1 })
+      .select('pdfPath versionNumber');
+
+    if (!latestVersion) {
+      return res.status(404).json({ message: "No audit version found for this form ID" });
+    }
+
+    res.status(200).json({
+      message: "PDF path retrieved successfully",
+      formId: formId,
+      versionNumber: latestVersion.versionNumber,
+      pdfPath: latestVersion.pdfPath
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      message: "Failed to retrieve PDF path", 
+      error: error.message 
+    });
   }
 });

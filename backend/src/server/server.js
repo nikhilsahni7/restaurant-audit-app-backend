@@ -9,6 +9,7 @@ import AdminJSExpress from '@adminjs/express';
 import { Database, Resource } from '@adminjs/mongoose'; // Correct named import
 import User from './models/UserModel.js';
 import Audit from './models/TaskModel.js';
+import AuditVersion from './models/PdfModel.js';
 
 // Initialize AdminJS with Mongoose adapter
 AdminJS.registerAdapter({ Database, Resource });
@@ -24,6 +25,12 @@ const adminJs = new AdminJS({
     },
     {
       resource: Audit,
+      options: {
+        // Custom options for the Audit resource if needed
+      },
+    },
+    {
+      resource: AuditVersion,
       options: {
         // Custom options for the Audit resource if needed
       },
