@@ -1,15 +1,15 @@
-import express from 'express';
-import connectDb from './config/dbconnection.js';
-import cors from 'cors';
-import uploadKeRoutes from './routes/uploadRoutes.js';
-import auditKeRoutes from './routes/auditRoutes.js';
-import userKeRoutes from './routes/userRoutes.js';
-import AdminJS from 'adminjs';
-import AdminJSExpress from '@adminjs/express';
-import { Database, Resource } from '@adminjs/mongoose'; // Correct named import
-import User from './models/UserModel.js';
-import Audit from './models/TaskModel.js';
-import AuditVersion from './models/PdfModel.js';
+import express from "express";
+import connectDb from "./config/dbconnection.js";
+import cors from "cors";
+import uploadKeRoutes from "./routes/uploadRoutes.js";
+import auditKeRoutes from "./routes/auditRoutes.js";
+import userKeRoutes from "./routes/userRoutes.js";
+import AdminJS from "adminjs";
+import AdminJSExpress from "@adminjs/express";
+import { Database, Resource } from "@adminjs/mongoose"; // Correct named import
+import User from "./models/UserModel.js";
+import Audit from "./models/TaskModel.js";
+import AuditVersion from "./models/PdfModel.js";
 
 // Initialize AdminJS with Mongoose adapter
 AdminJS.registerAdapter({ Database, Resource });
@@ -34,9 +34,9 @@ const adminJs = new AdminJS({
       options: {
         // Custom options for the Audit resource if needed
       },
-    }
+    },
   ],
-  rootPath: '/api/admin', // Path where AdminJS will be available
+  rootPath: "/api/admin", // Path where AdminJS will be available
 });
 
 // Build and use AdminJS router
@@ -54,22 +54,22 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(
   cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ["Content-Type"],
   })
 );
 
 // Add AdminJS routes
-app.use('/api/admin', adminRouter);
+app.use("/api/admin", adminRouter);
 
-app.use('/api/image', uploadKeRoutes);
-app.use('/api/admin', auditKeRoutes);
-app.use('/api/user', userKeRoutes);
+app.use("/api/image", uploadKeRoutes);
+app.use("/api/admin", auditKeRoutes);
+app.use("/api/user", userKeRoutes);
 
-app.get('/', (req, res) => {
-  res.send('Server is working');
+app.get("/", (req, res) => {
+  res.send("Server is working");
 });
 
 app.listen(port, () => {

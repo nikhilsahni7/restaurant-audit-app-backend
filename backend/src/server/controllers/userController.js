@@ -1,4 +1,4 @@
-import { PDFDocument, PDFTextField, PDFForm } from "pdf-lib";
+import { PDFDocument, PDFTextField, PDFForm, last } from "pdf-lib";
 import uploadPdfToS3 from "../utils/pdfUploader.js";
 import { promises as fs } from "fs";
 import path from "path";
@@ -9,6 +9,10 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/UserModel.js";
 import dotenv from "dotenv";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -32,6 +36,7 @@ export const userRegistration = asyncHandler(async (req, res) => {
       email,
       phoneNumber,
       password: hashedPassword,
+      memberSince: Date.now(),
     });
 
     const savedUser = await user.save();
@@ -70,6 +75,12 @@ export const userLogin = asyncHandler(async (req, res) => {
       return res.status(400).json({ message: "Invalid email or password" });
     }
 
+    // Increment login count and update last login
+    user.lastLogin = Date.now(); // Update lastLogin to current time
+    user.loginCount += 1; // Increment loginCount
+
+    await user.save(); // Save changes to the database
+
     // Create JWT token
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
       expiresIn: "30d",
@@ -82,9 +93,30 @@ export const userLogin = asyncHandler(async (req, res) => {
       name: user.name,
       email: user.email,
       phoneNumber: user.phoneNumber,
+      lastLogin: user.lastLogin, // Return updated lastLogin
+      loginCount: user.loginCount, // Return updated loginCount
     });
   } catch (err) {
     return res.status(500).json({ message: `Internal Server Error ${err}` });
+  }
+});
+
+export const getUserDetails = asyncHandler(async (req, res) => {
+  const userId = req.params.userId; // Get the user ID from the request params
+
+  const user = await User.findById(userId).select("-password");
+
+  if (user) {
+    res.json({
+      name: user.name,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      memberSince: user.createdAt,
+      lastLogin: user.lastLogin,
+      loginCount: user.loginCount,
+    });
+  } else {
+    res.status(404).json({ message: "User not found" });
   }
 });
 
@@ -187,7 +219,7 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
 
 export const updateAuditForm = asyncHandler(async (req, res) => {
   try {
-    const { id } = req.params; 
+    const { id } = req.params;
     const {
       nameOfCompany,
       fssaiLicenseNo,
@@ -215,20 +247,27 @@ export const updateAuditForm = asyncHandler(async (req, res) => {
     }
 
     // Update the audit form
-    existingAuditForm.nameOfCompany = nameOfCompany || existingAuditForm.nameOfCompany;
-    existingAuditForm.fssaiLicenseNo = fssaiLicenseNo || existingAuditForm.fssaiLicenseNo;
-    existingAuditForm.companyRepresentatives = companyRepresentatives || existingAuditForm.companyRepresentatives;
-    existingAuditForm.siteAddress = siteAddress || existingAuditForm.siteAddress;
+    existingAuditForm.nameOfCompany =
+      nameOfCompany || existingAuditForm.nameOfCompany;
+    existingAuditForm.fssaiLicenseNo =
+      fssaiLicenseNo || existingAuditForm.fssaiLicenseNo;
+    existingAuditForm.companyRepresentatives =
+      companyRepresentatives || existingAuditForm.companyRepresentatives;
+    existingAuditForm.siteAddress =
+      siteAddress || existingAuditForm.siteAddress;
     existingAuditForm.state = state || existingAuditForm.state;
     existingAuditForm.pinCode = pinCode || existingAuditForm.pinCode;
     existingAuditForm.phoneNo = phoneNo || existingAuditForm.phoneNo;
     existingAuditForm.email = email || existingAuditForm.email;
     existingAuditForm.website = website || existingAuditForm.website;
     existingAuditForm.auditTeam = auditTeam || existingAuditForm.auditTeam;
-    existingAuditForm.dateOfAudit = dateOfAudit || existingAuditForm.dateOfAudit;
+    existingAuditForm.dateOfAudit =
+      dateOfAudit || existingAuditForm.dateOfAudit;
     existingAuditForm.auditType = auditType || existingAuditForm.auditType;
-    existingAuditForm.auditCriteria = auditCriteria || existingAuditForm.auditCriteria;
-    existingAuditForm.typeOfAudit = typeOfAudit || existingAuditForm.typeOfAudit;
+    existingAuditForm.auditCriteria =
+      auditCriteria || existingAuditForm.auditCriteria;
+    existingAuditForm.typeOfAudit =
+      typeOfAudit || existingAuditForm.typeOfAudit;
     existingAuditForm.scope = scope || existingAuditForm.scope;
     existingAuditForm.manpower = manpower || existingAuditForm.manpower;
     existingAuditForm.sections = sections || existingAuditForm.sections;
@@ -240,7 +279,10 @@ export const updateAuditForm = asyncHandler(async (req, res) => {
     const pdfPath = await generateAuditPdf(updatedAuditForm);
 
     // Upload PDF to S3
-    const s3Url = await uploadPdfToS3(pdfPath, `Audit_Form_${updatedAuditForm._id}_v${updatedAuditForm.version}.pdf`);
+    const s3Url = await uploadPdfToS3(
+      pdfPath,
+      `Audit_Form_${updatedAuditForm._id}_v${updatedAuditForm.version}.pdf`
+    );
 
     // Save version control information
     const auditVersion = new AuditVersion({
@@ -264,7 +306,8 @@ export const updateAuditForm = asyncHandler(async (req, res) => {
 
 const generateAuditPdf = async (auditForm) => {
   try {
-    const templatePath = "/home/vishal-sharma/freelance/restaurant-audit-app-backend/backend/src/server/templates/template.pdf";
+    // Resolve the absolute path to the template
+    const templatePath = path.resolve(__dirname, "../templates/template.pdf");
     const templatePdfBytes = await fs.readFile(templatePath);
     const pdfDoc = await PDFDocument.load(templatePdfBytes);
 
@@ -288,7 +331,7 @@ const generateAuditPdf = async (auditForm) => {
       ac: auditForm.auditCriteria,
       scp: auditForm.scope,
       mc: auditForm.manpower.male.toString(),
-      fc: auditForm.manpower.female.toString()
+      fc: auditForm.manpower.female.toString(),
     };
 
     // Fill in the text fields
@@ -300,14 +343,18 @@ const generateAuditPdf = async (auditForm) => {
     });
 
     // Handle checkboxes
-    const patCheckbox = form.getCheckBox('pat');
-    const aatCheckbox = form.getCheckBox('aat');
-    
+    const patCheckbox = form.getCheckBox("pat");
+    const aatCheckbox = form.getCheckBox("aat");
+
     if (patCheckbox) {
-      auditForm.typeOfAudit === 'Pre Assessment' ? patCheckbox.check() : patCheckbox.uncheck();
+      auditForm.typeOfAudit === "Pre Assessment"
+        ? patCheckbox.check()
+        : patCheckbox.uncheck();
     }
     if (aatCheckbox) {
-      auditForm.typeOfAudit === 'Annual audit' ? aatCheckbox.check() : aatCheckbox.uncheck();
+      auditForm.typeOfAudit === "Annual audit"
+        ? aatCheckbox.check()
+        : aatCheckbox.uncheck();
     }
 
     // Fill in the dynamic fields (q1, q2, q3, etc.)
@@ -315,76 +362,58 @@ const generateAuditPdf = async (auditForm) => {
       const fieldName = `q${index + 1}`;
       const field = form.getTextField(fieldName);
       if (field) {
-        // For now, we'll use a sample string. In production, use the actual data:
-        field.setText(section.evidenceAndComments);
-        // field.setText(`Sample evidence and comments for question ${index + 1}`);
-      }
-    });
-
-    /* 
-    // Commented code for handling actual user data
-    auditForm.sections.forEach((section, index) => {
-      const fieldName = `q${index + 1}`;
-      const field = form.getTextField(fieldName);
-      if (field) {
         field.setText(section.evidenceAndComments);
       }
     });
-    */
 
     form.flatten();
 
-    // Save the PDF locally
+    // Generate the PDF bytes in-memory
     const pdfBytes = await pdfDoc.save();
     const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
-    const pdfPath = path.join("/home/vishal-sharma/freelance/restaurant-audit-app-backend/pdfs", pdfName);
-    await fs.mkdir(path.dirname(pdfPath), { recursive: true });
-    await fs.writeFile(pdfPath, pdfBytes);
 
-    // Upload the PDF to S3
-    const s3Url = await uploadPdfToS3(pdfPath, pdfName);
-
-    // Optionally, delete the local file after uploading
-    await fs.unlink(pdfPath);
+    // Upload the PDF directly to S3
+    const s3Url = await uploadPdfToS3(pdfBytes, pdfName); // Pass pdfBytes directly
 
     // Return the S3 URL
     return s3Url;
-
   } catch (error) {
     console.error("Error generating PDF:", error);
     throw error;
   }
 };
-
 export const getUserFilledAuditForms = asyncHandler(async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const filledTemplates = await Audit.find({ 
-      userId: userId, 
-      status: "FILLED" 
+    const filledTemplates = await Audit.find({
+      userId: userId,
+      status: "FILLED",
     }).sort({ version: -1 }); // Sort by version in descending order
 
     if (!filledTemplates.length) {
-      return res.status(404).json({ message: "No filled audit forms found for this user" });
+      return res
+        .status(404)
+        .json({ message: "No filled audit forms found for this user" });
     }
 
     res.status(200).json({
       message: "Filled audit forms retrieved successfully",
-      templates: filledTemplates
+      templates: filledTemplates,
     });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Failed to fetch filled audit forms", error: error.message });
+    res.status(500).json({
+      message: "Failed to fetch filled audit forms",
+      error: error.message,
+    });
   }
 });
 
 // Fetch a specific version of an audit form filled by a user
 export const getAuditFormVersionById = asyncHandler(async (req, res) => {
   try {
-    const { id} = req.params;
-    const template = await Audit.findOne({ _id: id});
+    const { id } = req.params;
+    const template = await Audit.findOne({ _id: id });
 
     if (!template) {
       return res.status(404).json({ message: "Audit form version not found" });
@@ -424,22 +453,24 @@ export const getPdfPathForForm = asyncHandler(async (req, res) => {
     // Find the latest version of the audit form
     const latestVersion = await AuditVersion.findOne({ formId: formId })
       .sort({ versionNumber: -1 })
-      .select('pdfPath versionNumber');
+      .select("pdfPath versionNumber");
 
     if (!latestVersion) {
-      return res.status(404).json({ message: "No audit version found for this form ID" });
+      return res
+        .status(404)
+        .json({ message: "No audit version found for this form ID" });
     }
 
     res.status(200).json({
       message: "PDF path retrieved successfully",
       formId: formId,
       versionNumber: latestVersion.versionNumber,
-      pdfPath: latestVersion.pdfPath
+      pdfPath: latestVersion.pdfPath,
     });
   } catch (error) {
-    res.status(500).json({ 
-      message: "Failed to retrieve PDF path", 
-      error: error.message 
+    res.status(500).json({
+      message: "Failed to retrieve PDF path",
+      error: error.message,
     });
   }
 });
