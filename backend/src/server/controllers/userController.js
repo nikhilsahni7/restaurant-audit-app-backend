@@ -1,4 +1,4 @@
-import { PDFDocument, PDFTextField, PDFForm, last } from "pdf-lib";
+import { PDFDocument, rgb} from "pdf-lib";
 import uploadPdfToS3 from "../utils/pdfUploader.js";
 import { promises as fs } from "fs";
 import path from "path";
@@ -306,15 +306,14 @@ export const updateAuditForm = asyncHandler(async (req, res) => {
 
 const generateAuditPdf = async (auditForm) => {
   try {
-    // Resolve the absolute path to the template
+    // Existing code for PDF setup...
     const templatePath = path.resolve(__dirname, "../templates/template.pdf");
     const templatePdfBytes = await fs.readFile(templatePath);
     const pdfDoc = await PDFDocument.load(templatePdfBytes);
-
-    // Get the form from the document
     const form = pdfDoc.getForm();
+    const pages = pdfDoc.getPages();
 
-    // Define field mappings
+    // Existing field mappings...
     const fieldMappings = {
       cn: auditForm.nameOfCompany,
       fn: auditForm.fssaiLicenseNo,
@@ -342,10 +341,9 @@ const generateAuditPdf = async (auditForm) => {
       }
     });
 
-    // Handle checkboxes
+    // Handle checkboxes for audit type
     const patCheckbox = form.getCheckBox("pat");
     const aatCheckbox = form.getCheckBox("aat");
-
     if (patCheckbox) {
       auditForm.typeOfAudit === "Pre Assessment"
         ? patCheckbox.check()
@@ -357,12 +355,60 @@ const generateAuditPdf = async (auditForm) => {
         : aatCheckbox.uncheck();
     }
 
-    // Fill in the dynamic fields (q1, q2, q3, etc.)
+     // Define color map based on compliance
+     const colorMap = {
+      'Y': rgb(0.0, 0.5, 0.0),    // Dark Green for Compliance
+      'N': rgb(1.0, 0.0, 0.0),    // Red for Not Compliance
+      'NI': rgb(0.0, 1.0, 1.0),   // Cyan for Needs Improvement
+      'N/A': rgb(0.5, 0.0, 0.5)   // Purple for Not Applicable
+    };
+
     auditForm.sections.forEach((section, index) => {
-      const fieldName = `q${index + 1}`;
-      const field = form.getTextField(fieldName);
-      if (field) {
-        field.setText(section.evidenceAndComments);
+      const questionNumber = index + 1;
+      const textFieldName = `q${questionNumber}`;
+      const textField = form.getTextField(textFieldName);
+
+      if (textField) {
+        textField.setText(section.evidenceAndComments);
+        textField.setFontSize(10);
+        // textField.setReadOnly(true);
+
+        try {
+          // Get the position and size of the text field
+          const { x, y, width, height } = textField.getRect();
+
+          // Find the page that contains this field
+          const fieldPage = textField.acroField.P;
+          const pageIndex = pages.findIndex(page => page.ref === fieldPage);
+
+          if (pageIndex !== -1) {
+            const page = pages[pageIndex];
+            const backgroundColor = colorMap[section.compliance];
+            if (backgroundColor) {
+              page.drawRectangle({
+                x,
+                y,
+                width,
+                height,
+                color: backgroundColor,
+                opacity: 0.3, // Adjust this value to change the transparency
+              });
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to draw background for field ${textFieldName}:`, error);
+        }
+      }
+
+      // Check the appropriate checkbox based on compliance
+      const complianceMap = { 'Y': 1, 'N': 2, 'NI': 3, 'N/A': 4 };
+      const checkboxNumber = complianceMap[section.compliance];
+      if (checkboxNumber) {
+        const checkboxFieldName = `q${questionNumber}c${checkboxNumber}`;
+        const checkbox = form.getCheckBox(checkboxFieldName);
+        if (checkbox) {
+          checkbox.check();
+        }
       }
     });
 
@@ -373,7 +419,7 @@ const generateAuditPdf = async (auditForm) => {
     const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
 
     // Upload the PDF directly to S3
-    const s3Url = await uploadPdfToS3(pdfBytes, pdfName); // Pass pdfBytes directly
+    const s3Url = await uploadPdfToS3(pdfBytes, pdfName);
 
     // Return the S3 URL
     return s3Url;
@@ -382,6 +428,7 @@ const generateAuditPdf = async (auditForm) => {
     throw error;
   }
 };
+
 export const getUserFilledAuditForms = asyncHandler(async (req, res) => {
   try {
     const { userId } = req.params;
