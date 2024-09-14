@@ -1,4 +1,4 @@
-import { PDFDocument, rgb} from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
 import uploadPdfToS3 from "../utils/pdfUploader.js";
 import { promises as fs } from "fs";
 import path from "path";
@@ -10,6 +10,9 @@ import jwt from "jsonwebtoken";
 import User from "../models/UserModel.js";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
+import axios from "axios";
+import cloudinary from "../config/cloudinary.js";
+import sharp from "sharp";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -165,6 +168,20 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
       return res.status(404).json({ message: "Audit template not found" });
     }
 
+    // Handle image uploads
+    const updatedSections = await Promise.all(
+      sections.map(async (section) => {
+        if (section.image) {
+          // Assume section.image is a base64 string
+          const uploadResult = await cloudinary.uploader.upload(section.image, {
+            folder: "audit_images",
+          });
+          return { ...section, image: uploadResult.secure_url };
+        }
+        return section;
+      })
+    );
+
     // Create a new audit form entry
     const newAuditForm = new Audit({
       userId,
@@ -185,7 +202,7 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
       typeOfAudit,
       scope,
       manpower,
-      sections,
+      sections: updatedSections,
       status: "FILLED",
       version: (template.version || 0) + 1,
     });
@@ -194,6 +211,7 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
 
     // Generate PDF
     const pdfPath = await generateAuditPdf(savedAuditForm);
+
     // Save version control information
     const auditVersion = new AuditVersion({
       userId,
@@ -209,8 +227,6 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
       pdfPath: pdfPath,
     });
   } catch (error) {
-    // Fill in the static fields
-
     res
       .status(500)
       .json({ message: "Failed to create audit form", error: error.message });
@@ -306,14 +322,20 @@ export const updateAuditForm = asyncHandler(async (req, res) => {
 
 const generateAuditPdf = async (auditForm) => {
   try {
-    // Existing code for PDF setup...
+    // Load the template PDF
     const templatePath = path.resolve(__dirname, "../templates/template.pdf");
     const templatePdfBytes = await fs.readFile(templatePath);
     const pdfDoc = await PDFDocument.load(templatePdfBytes);
     const form = pdfDoc.getForm();
     const pages = pdfDoc.getPages();
 
-    // Existing field mappings...
+    // Log all form field names for debugging
+    console.log(
+      "All form field names:",
+      form.getFields().map((field) => field.getName())
+    );
+
+    // Fill in the form fields
     const fieldMappings = {
       cn: auditForm.nameOfCompany,
       fn: auditForm.fssaiLicenseNo,
@@ -333,53 +355,65 @@ const generateAuditPdf = async (auditForm) => {
       fc: auditForm.manpower.female.toString(),
     };
 
-    // Fill in the text fields
     Object.entries(fieldMappings).forEach(([fieldName, value]) => {
-      const field = form.getTextField(fieldName);
-      if (field) {
-        field.setText(value);
+      try {
+        const field = form.getTextField(fieldName);
+        if (field) {
+          field.setText(value);
+        } else {
+          console.warn(`TextField ${fieldName} not found in the form.`);
+        }
+      } catch (error) {
+        console.warn(
+          `Error setting text for field ${fieldName}:`,
+          error.message
+        );
       }
     });
 
     // Handle checkboxes for audit type
-    const patCheckbox = form.getCheckBox("pat");
-    const aatCheckbox = form.getCheckBox("aat");
-    if (patCheckbox) {
-      auditForm.typeOfAudit === "Pre Assessment"
-        ? patCheckbox.check()
-        : patCheckbox.uncheck();
-    }
-    if (aatCheckbox) {
-      auditForm.typeOfAudit === "Annual audit"
-        ? aatCheckbox.check()
-        : aatCheckbox.uncheck();
-    }
+    ["pat", "aat"].forEach((checkboxName) => {
+      try {
+        const checkbox = form.getCheckBox(checkboxName);
+        if (checkbox) {
+          auditForm.typeOfAudit ===
+          (checkboxName === "pat" ? "Pre Assessment" : "Annual audit")
+            ? checkbox.check()
+            : checkbox.uncheck();
+        } else {
+          console.warn(`Checkbox ${checkboxName} not found in the form.`);
+        }
+      } catch (error) {
+        console.warn(`Error handling checkbox ${checkboxName}:`, error.message);
+      }
+    });
 
-     // Define color map based on compliance
-     const colorMap = {
-      'Y': rgb(0.0, 0.5, 0.0),    // Dark Green for Compliance
-      'N': rgb(1.0, 0.0, 0.0),    // Red for Not Compliance
-      'NI': rgb(0.0, 1.0, 1.0),   // Cyan for Needs Improvement
-      'N/A': rgb(0.5, 0.0, 0.5)   // Purple for Not Applicable
+    // Define color map based on compliance
+    const colorMap = {
+      Y: rgb(0.0, 1.0, 0.0), // Green for Compliance
+      N: rgb(1.0, 0.0, 0.0), // Red for Not Compliance
+      NI: rgb(1.0, 1.0, 0.0), // Yellow for Needs Improvement
+      "N/A": rgb(0.5, 0.5, 0.5), // Gray for Not Applicable
     };
 
+    // Fill in the sections and apply colors
     auditForm.sections.forEach((section, index) => {
       const questionNumber = index + 1;
       const textFieldName = `q${questionNumber}`;
-      const textField = form.getTextField(textFieldName);
 
-      if (textField) {
-        textField.setText(section.evidenceAndComments);
-        textField.setFontSize(10);
-        // textField.setReadOnly(true);
+      try {
+        const textField = form.getTextField(textFieldName);
+        if (textField) {
+          textField.setText(section.evidenceAndComments);
+          textField.setFontSize(10);
 
-        try {
-          // Get the position and size of the text field
-          const { x, y, width, height } = textField.getRect();
+          const widget = textField.acroField.getWidgets()[0];
+          const { x, y, width, height } = widget.getRectangle();
 
-          // Find the page that contains this field
-          const fieldPage = textField.acroField.P;
-          const pageIndex = pages.findIndex(page => page.ref === fieldPage);
+          const fieldPage = widget.P;
+          const pageIndex = pdfDoc
+            .getPages()
+            .findIndex((page) => page.ref === fieldPage);
 
           if (pageIndex !== -1) {
             const page = pages[pageIndex];
@@ -391,28 +425,142 @@ const generateAuditPdf = async (auditForm) => {
                 width,
                 height,
                 color: backgroundColor,
-                opacity: 0.3, // Adjust this value to change the transparency
+                opacity: 0.3,
               });
             }
           }
-        } catch (error) {
-          console.warn(`Failed to draw background for field ${textFieldName}:`, error);
+        } else {
+          console.warn(`TextField ${textFieldName} not found in the form.`);
         }
+      } catch (error) {
+        console.warn(
+          `Error processing text field ${textFieldName}:`,
+          error.message
+        );
       }
 
       // Check the appropriate checkbox based on compliance
-      const complianceMap = { 'Y': 1, 'N': 2, 'NI': 3, 'N/A': 4 };
+      const complianceMap = { Y: 1, N: 2, NI: 3, "N/A": 4 };
       const checkboxNumber = complianceMap[section.compliance];
       if (checkboxNumber) {
         const checkboxFieldName = `q${questionNumber}c${checkboxNumber}`;
-        const checkbox = form.getCheckBox(checkboxFieldName);
-        if (checkbox) {
-          checkbox.check();
+        try {
+          const checkbox = form.getCheckBox(checkboxFieldName);
+          if (checkbox) {
+            checkbox.check();
+          } else {
+            console.warn(
+              `Checkbox ${checkboxFieldName} not found in the form.`
+            );
+          }
+        } catch (error) {
+          console.warn(
+            `Error checking checkbox ${checkboxFieldName}:`,
+            error.message
+          );
         }
       }
     });
 
-    form.flatten();
+    // Add a new page for images
+    const imagePage = pdfDoc.addPage();
+
+    // Calculate the number of images to be added
+    const imageSections = auditForm.sections.filter((section) => section.image);
+
+    // Set up grid layout for images
+    const imagesPerRow = 2;
+    const imageWidth = 250;
+    const imageHeight = 200;
+    const margin = 50;
+
+    for (let i = 0; i < imageSections.length; i++) {
+      const section = imageSections[i];
+      const row = Math.floor(i / imagesPerRow);
+      const col = i % imagesPerRow;
+
+      const x = margin + col * (imageWidth + margin);
+      const y =
+        imagePage.getHeight() - (margin + (row + 1) * (imageHeight + margin));
+
+      try {
+        // Fetch image from Cloudinary
+        const response = await axios.get(section.image, {
+          responseType: "arraybuffer",
+        });
+        const imageBuffer = Buffer.from(response.data);
+
+        // Use sharp to determine the image format and convert if necessary
+        const metadata = await sharp(imageBuffer).metadata();
+        let processedImageBuffer;
+
+        switch (metadata.format) {
+          case "jpeg":
+          case "jpg":
+            processedImageBuffer = imageBuffer;
+            break;
+          case "png":
+            processedImageBuffer = await sharp(imageBuffer).jpeg().toBuffer();
+            break;
+          case "webp":
+            processedImageBuffer = await sharp(imageBuffer).jpeg().toBuffer();
+            break;
+          default:
+            throw new Error(`Unsupported image format: ${metadata.format}`);
+        }
+
+        // Embed image in PDF
+        const embeddedImage = await pdfDoc.embedJpg(processedImageBuffer);
+        imagePage.drawImage(embeddedImage, {
+          x,
+          y,
+          width: imageWidth,
+          height: imageHeight,
+        });
+
+        // Add text below the image
+        imagePage.drawText(`Question: ${section.question}`, {
+          x: x,
+          y: y - 20,
+          size: 10,
+        });
+        imagePage.drawText(`Compliance: ${section.compliance}`, {
+          x: x,
+          y: y - 35,
+          size: 10,
+        });
+        imagePage.drawText(`Evidence: ${section.evidenceAndComments}`, {
+          x: x,
+          y: y - 50,
+          size: 10,
+          maxWidth: imageWidth,
+        });
+      } catch (imageError) {
+        console.error(
+          `Error processing image for section ${i + 1}:`,
+          imageError
+        );
+        // Add an error message instead of the image
+        imagePage.drawText(`Error loading image for Question ${i + 1}`, {
+          x,
+          y,
+          size: 12,
+          color: rgb(1, 0, 0), // Red color
+        });
+      }
+    }
+
+    // Make form read-only
+    form.getFields().forEach((field) => {
+      try {
+        field.enableReadOnly();
+      } catch (error) {
+        console.warn(
+          `Error setting read-only for field ${field.getName()}:`,
+          error.message
+        );
+      }
+    });
 
     // Generate the PDF bytes in-memory
     const pdfBytes = await pdfDoc.save();
@@ -428,6 +576,8 @@ const generateAuditPdf = async (auditForm) => {
     throw error;
   }
 };
+
+export default generateAuditPdf;
 
 export const getUserFilledAuditForms = asyncHandler(async (req, res) => {
   try {

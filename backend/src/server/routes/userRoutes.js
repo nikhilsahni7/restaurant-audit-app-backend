@@ -26,7 +26,7 @@ router.get("/audit-template/:id", getAuditTemplateById);
 // Route to get all audit forms filled by a specific user
 router.get("/user-audit-forms/:userId", getUserFilledAuditForms);
 // Route to get a specific version of an audit form
-router.get("/audit-form/:id/version/:version", getAuditFormVersionById);
+router.get("/audit-form/:id", getAuditFormVersionById); // fetch id to update ..
 
 // Route to delete an audit form
 router.delete("/audit-form/:id", deleteAuditForm);

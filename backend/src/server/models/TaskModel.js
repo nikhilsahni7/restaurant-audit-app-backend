@@ -1,19 +1,23 @@
 import { Schema, model } from "mongoose";
 
-const questionSchema = new Schema({
+const questionSchema = new Schema(
+  {
     question: String,
     compliance: {
-        type: String,
-        enum: ['Y', 'N', 'NI', 'N/A'], 
+      type: String,
+      enum: ["Y", "N", "NI", "N/A"],
+      default: "N/A",
     },
     evidenceAndComments: String,
-    image:String
-}, { _id: false });
+    image: String,
+  },
+  { _id: false }
+);
 
-
-const auditSchema = new Schema({
-    userId:String,
-    restaurantName:String,
+const auditSchema = new Schema(
+  {
+    userId: String,
+    restaurantName: String,
     nameOfCompany: String,
     fssaiLicenseNo: String,
     companyRepresentatives: [String], // For multiple representatives
@@ -30,15 +34,17 @@ const auditSchema = new Schema({
     typeOfAudit: String,
     scope: String,
     manpower: {
-        male: Number,
-        female: Number
+      male: Number,
+      female: Number,
     },
     sections: [questionSchema],
-    status:{
-        type:String,
-        enum:["FILLED","NOT FILLED"],
+    status: {
+      type: String,
+      enum: ["FILLED", "NOT FILLED"],
     },
-    version:Number
-}, { timestamps: true });
+    version: Number,
+  },
+  { timestamps: true }
+);
 
 export default model("Audit", auditSchema);
