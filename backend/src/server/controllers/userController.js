@@ -1,4 +1,4 @@
-import { PDFDocument, rgb } from "pdf-lib";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import uploadPdfToS3 from "../utils/pdfUploader.js";
 import { promises as fs } from "fs";
 import path from "path";
@@ -237,6 +237,7 @@ export const updateAuditForm = asyncHandler(async (req, res) => {
   try {
     const { id } = req.params;
     const {
+      userId,
       nameOfCompany,
       fssaiLicenseNo,
       companyRepresentatives,
@@ -262,56 +263,62 @@ export const updateAuditForm = asyncHandler(async (req, res) => {
       return res.status(404).json({ message: "Audit form not found" });
     }
 
-    // Update the audit form
-    existingAuditForm.nameOfCompany =
-      nameOfCompany || existingAuditForm.nameOfCompany;
-    existingAuditForm.fssaiLicenseNo =
-      fssaiLicenseNo || existingAuditForm.fssaiLicenseNo;
-    existingAuditForm.companyRepresentatives =
-      companyRepresentatives || existingAuditForm.companyRepresentatives;
-    existingAuditForm.siteAddress =
-      siteAddress || existingAuditForm.siteAddress;
-    existingAuditForm.state = state || existingAuditForm.state;
-    existingAuditForm.pinCode = pinCode || existingAuditForm.pinCode;
-    existingAuditForm.phoneNo = phoneNo || existingAuditForm.phoneNo;
-    existingAuditForm.email = email || existingAuditForm.email;
-    existingAuditForm.website = website || existingAuditForm.website;
-    existingAuditForm.auditTeam = auditTeam || existingAuditForm.auditTeam;
-    existingAuditForm.dateOfAudit =
-      dateOfAudit || existingAuditForm.dateOfAudit;
-    existingAuditForm.auditType = auditType || existingAuditForm.auditType;
-    existingAuditForm.auditCriteria =
-      auditCriteria || existingAuditForm.auditCriteria;
-    existingAuditForm.typeOfAudit =
-      typeOfAudit || existingAuditForm.typeOfAudit;
-    existingAuditForm.scope = scope || existingAuditForm.scope;
-    existingAuditForm.manpower = manpower || existingAuditForm.manpower;
-    existingAuditForm.sections = sections || existingAuditForm.sections;
-    existingAuditForm.version += 1;
+    // Handle image uploads
+    const updatedSections = await Promise.all(
+      sections.map(async (section) => {
+        if (section.image && section.image.startsWith("data:image")) {
+          // Assume section.image is a base64 string
+          const uploadResult = await cloudinary.uploader.upload(section.image, {
+            folder: "audit_images",
+          });
+          return { ...section, image: uploadResult.secure_url };
+        }
+        return section;
+      })
+    );
 
-    const updatedAuditForm = await existingAuditForm.save();
+    // Update the audit form
+    const updatedAuditForm = await Audit.findByIdAndUpdate(
+      id,
+      {
+        userId,
+        nameOfCompany,
+        fssaiLicenseNo,
+        companyRepresentatives,
+        siteAddress,
+        state,
+        pinCode,
+        phoneNo,
+        email,
+        website,
+        auditTeam,
+        dateOfAudit: new Date(dateOfAudit).toISOString(),
+        auditType,
+        auditCriteria,
+        typeOfAudit,
+        scope,
+        manpower,
+        sections: updatedSections,
+        version: existingAuditForm.version + 1,
+      },
+      { new: true }
+    );
 
     // Generate new PDF
     const pdfPath = await generateAuditPdf(updatedAuditForm);
-
-    // Upload PDF to S3
-    const s3Url = await uploadPdfToS3(
-      pdfPath,
-      `Audit_Form_${updatedAuditForm._id}_v${updatedAuditForm.version}.pdf`
-    );
 
     // Save version control information
     const auditVersion = new AuditVersion({
       userId: updatedAuditForm.userId,
       formId: updatedAuditForm._id,
       versionNumber: updatedAuditForm.version,
-      pdfUrl: s3Url,
+      pdfPath,
     });
     await auditVersion.save();
 
     res.status(200).json({
       message: "Audit form updated successfully",
-      pdfUrl: s3Url,
+      pdfPath: pdfPath,
     });
   } catch (error) {
     res
@@ -462,90 +469,91 @@ const generateAuditPdf = async (auditForm) => {
       }
     });
 
-    // Add a new page for images
-    const imagePage = pdfDoc.addPage();
-
-    // Calculate the number of images to be added
+    // Add images and their details
     const imageSections = auditForm.sections.filter((section) => section.image);
-
-    // Set up grid layout for images
-    const imagesPerRow = 2;
-    const imageWidth = 250;
-    const imageHeight = 200;
-    const margin = 50;
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontSize = 10;
+    const lineHeight = 15;
 
     for (let i = 0; i < imageSections.length; i++) {
       const section = imageSections[i];
-      const row = Math.floor(i / imagesPerRow);
-      const col = i % imagesPerRow;
-
-      const x = margin + col * (imageWidth + margin);
-      const y =
-        imagePage.getHeight() - (margin + (row + 1) * (imageHeight + margin));
+      const imagePage = pdfDoc.addPage();
+      const { width, height } = imagePage.getSize();
+      const margin = 50;
+      const imageWidth = width - 2 * margin;
+      const imageHeight = height * 0.6; // 60% of page height for image
 
       try {
-        // Fetch image from Cloudinary
+        // Fetch and process image
         const response = await axios.get(section.image, {
           responseType: "arraybuffer",
         });
         const imageBuffer = Buffer.from(response.data);
-
-        // Use sharp to determine the image format and convert if necessary
         const metadata = await sharp(imageBuffer).metadata();
-        let processedImageBuffer;
+        let processedImageBuffer = imageBuffer;
 
-        switch (metadata.format) {
-          case "jpeg":
-          case "jpg":
-            processedImageBuffer = imageBuffer;
-            break;
-          case "png":
-            processedImageBuffer = await sharp(imageBuffer).jpeg().toBuffer();
-            break;
-          case "webp":
-            processedImageBuffer = await sharp(imageBuffer).jpeg().toBuffer();
-            break;
-          default:
-            throw new Error(`Unsupported image format: ${metadata.format}`);
+        if (metadata.format !== "jpeg" && metadata.format !== "jpg") {
+          processedImageBuffer = await sharp(imageBuffer).jpeg().toBuffer();
         }
 
-        // Embed image in PDF
+        // Embed and draw image
         const embeddedImage = await pdfDoc.embedJpg(processedImageBuffer);
         imagePage.drawImage(embeddedImage, {
-          x,
-          y,
+          x: margin,
+          y: height - margin - imageHeight,
           width: imageWidth,
           height: imageHeight,
         });
 
-        // Add text below the image
-        imagePage.drawText(`Question: ${section.question}`, {
-          x: x,
-          y: y - 20,
-          size: 10,
-        });
-        imagePage.drawText(`Compliance: ${section.compliance}`, {
-          x: x,
-          y: y - 35,
-          size: 10,
-        });
-        imagePage.drawText(`Evidence: ${section.evidenceAndComments}`, {
-          x: x,
-          y: y - 50,
-          size: 10,
-          maxWidth: imageWidth,
-        });
+        // Helper function to draw wrapped text
+        const drawWrappedText = (text, yPosition) => {
+          const words = text.split(" ");
+          let line = "";
+          let currentY = yPosition;
+
+          words.forEach((word) => {
+            const testLine = line + word + " ";
+            const testWidth = font.widthOfTextAtSize(testLine, fontSize);
+
+            if (testWidth > imageWidth) {
+              imagePage.drawText(line, {
+                x: margin,
+                y: currentY,
+                size: fontSize,
+                font: font,
+              });
+              line = word + " ";
+              currentY -= lineHeight;
+            } else {
+              line = testLine;
+            }
+          });
+
+          imagePage.drawText(line, {
+            x: margin,
+            y: currentY,
+            size: fontSize,
+            font: font,
+          });
+          return currentY - lineHeight;
+        };
+
+        // Draw text below the image
+        let textY = height - margin - imageHeight - lineHeight;
+        textY = drawWrappedText(`Question: ${section.question}`, textY);
+        textY = drawWrappedText(`Compliance: ${section.compliance}`, textY);
+        drawWrappedText(`Evidence: ${section.evidenceAndComments}`, textY);
       } catch (imageError) {
         console.error(
           `Error processing image for section ${i + 1}:`,
           imageError
         );
-        // Add an error message instead of the image
         imagePage.drawText(`Error loading image for Question ${i + 1}`, {
-          x,
-          y,
+          x: margin,
+          y: height - margin,
           size: 12,
-          color: rgb(1, 0, 0), // Red color
+          color: rgb(1, 0, 0),
+          font: font,
         });
       }
     }
@@ -578,7 +586,6 @@ const generateAuditPdf = async (auditForm) => {
 };
 
 export default generateAuditPdf;
-
 export const getUserFilledAuditForms = asyncHandler(async (req, res) => {
   try {
     const { userId } = req.params;

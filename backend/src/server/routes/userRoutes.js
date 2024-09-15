@@ -18,7 +18,7 @@ router.post("/register", userRegistration); // register user
 router.post("/login", userLogin); // login user
 router.get("/user-details/:userId", getUserDetails);
 // Route to fill out or create a new audit form
-router.get("/audit-form/:formId", getPdfPathForForm);
+// router.get("/audit-form/:formId", getPdfPathForForm);
 router.post("/audit-form", fillOrCreateAuditForm); // pdf generate
 router.put("/audit-forms/:id", updateAuditForm); // edit pdf form
 // Route to get an audit template by ID
