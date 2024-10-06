@@ -140,39 +140,32 @@ export const getAuditTemplateById = asyncHandler(async (req, res) => {
 });
 
 export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
-  try {
-    const {
-      userId,
-      nameOfCompany,
-      fssaiLicenseNo,
-      companyRepresentatives,
-      siteAddress,
-      state,
-      pinCode,
-      phoneNo,
-      email,
-      website,
-      auditTeam,
-      dateOfAudit,
-      auditType,
-      auditCriteria,
-      typeOfAudit,
-      scope,
-      manpower,
-      sections,
-    } = req.body;
+  const {
+    userId,
+    nameOfCompany,
+    fssaiLicenseNo,
+    companyRepresentatives,
+    siteAddress,
+    state,
+    pinCode,
+    phoneNo,
+    email,
+    website,
+    auditTeam,
+    dateOfAudit,
+    auditType,
+    auditCriteria,
+    typeOfAudit,
+    scope,
+    manpower,
+    sections,
+  } = req.body;
 
-    // Find the existing audit template
-    const template = await Audit.findById("66d20424946495897592bd0c");
-    if (!template) {
-      return res.status(404).json({ message: "Audit template not found" });
-    }
-
-    // Handle image uploads
-    const updatedSections = await Promise.all(
+  const [template, updatedSections] = await Promise.all([
+    Audit.findById("66d20424946495897592bd0c"),
+    Promise.all(
       sections.map(async (section) => {
         if (section.image) {
-          // Assume section.image is a base64 string
           const uploadResult = await cloudinary.uploader.upload(section.image, {
             folder: "audit_images",
           });
@@ -180,12 +173,103 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
         }
         return section;
       })
-    );
+    ),
+  ]);
 
-    // Create a new audit form entry
-    const newAuditForm = new Audit({
+  if (!template) {
+    return res.status(404).json({ message: "Audit template not found" });
+  }
+
+  const newAuditForm = new Audit({
+    userId,
+    restaurantName: template.restaurantName,
+    nameOfCompany,
+    fssaiLicenseNo,
+    companyRepresentatives,
+    siteAddress,
+    state,
+    pinCode,
+    phoneNo,
+    email,
+    website,
+    auditTeam,
+    dateOfAudit,
+    auditType,
+    auditCriteria,
+    typeOfAudit,
+    scope,
+    manpower,
+    sections: updatedSections,
+    status: "FILLED",
+    version: (template.version || 0) + 1,
+  });
+
+  const [savedAuditForm, pdfPath] = await Promise.all([
+    newAuditForm.save(),
+    generateAuditPdf(newAuditForm),
+  ]);
+
+  const auditVersion = new AuditVersion({
+    userId,
+    formId: savedAuditForm._id,
+    versionNumber: savedAuditForm.version,
+    pdfPath,
+  });
+
+  await auditVersion.save();
+
+  res.status(201).json({
+    message: "Audit form created successfully",
+    pdfPath: pdfPath,
+  });
+});
+
+export const updateAuditForm = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const {
+    userId,
+    nameOfCompany,
+    fssaiLicenseNo,
+    companyRepresentatives,
+    siteAddress,
+    state,
+    pinCode,
+    phoneNo,
+    email,
+    website,
+    auditTeam,
+    dateOfAudit,
+    auditType,
+    auditCriteria,
+    typeOfAudit,
+    scope,
+    manpower,
+    sections,
+  } = req.body;
+
+  const [existingAuditForm, updatedSections] = await Promise.all([
+    Audit.findById(id),
+    Promise.all(
+      sections.map(async (section) => {
+        if (section.image && section.image.startsWith("data:image")) {
+          const uploadResult = await cloudinary.uploader.upload(section.image, {
+            folder: "audit_images",
+          });
+          return { ...section, image: uploadResult.secure_url };
+        }
+        return section;
+      })
+    ),
+  ]);
+
+  if (!existingAuditForm) {
+    return res.status(404).json({ message: "Audit form not found" });
+  }
+
+  const updatedAuditForm = await Audit.findByIdAndUpdate(
+    id,
+    {
       userId,
-      restaurantName: template.restaurantName,
       nameOfCompany,
       fssaiLicenseNo,
       companyRepresentatives,
@@ -196,396 +280,212 @@ export const fillOrCreateAuditForm = asyncHandler(async (req, res) => {
       email,
       website,
       auditTeam,
-      dateOfAudit,
+      dateOfAudit: new Date(dateOfAudit).toISOString(),
       auditType,
       auditCriteria,
       typeOfAudit,
       scope,
       manpower,
       sections: updatedSections,
-      status: "FILLED",
-      version: (template.version || 0) + 1,
-    });
+      version: existingAuditForm.version + 1,
+    },
+    { new: true }
+  );
 
-    const savedAuditForm = await newAuditForm.save();
+  const pdfPath = await generateAuditPdf(updatedAuditForm);
 
-    // Generate PDF
-    const pdfPath = await generateAuditPdf(savedAuditForm);
+  const auditVersion = new AuditVersion({
+    userId: updatedAuditForm.userId,
+    formId: updatedAuditForm._id,
+    versionNumber: updatedAuditForm.version,
+    pdfPath,
+  });
+  await auditVersion.save();
 
-    // Save version control information
-    const auditVersion = new AuditVersion({
-      userId,
-      formId: savedAuditForm._id,
-      versionNumber: savedAuditForm.version,
-      pdfPath,
-    });
-
-    await auditVersion.save();
-
-    res.status(201).json({
-      message: "Audit form created successfully",
-      pdfPath: pdfPath,
-    });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Failed to create audit form", error: error.message });
-  }
-});
-
-export const updateAuditForm = asyncHandler(async (req, res) => {
-  try {
-    const { id } = req.params;
-    const {
-      userId,
-      nameOfCompany,
-      fssaiLicenseNo,
-      companyRepresentatives,
-      siteAddress,
-      state,
-      pinCode,
-      phoneNo,
-      email,
-      website,
-      auditTeam,
-      dateOfAudit,
-      auditType,
-      auditCriteria,
-      typeOfAudit,
-      scope,
-      manpower,
-      sections,
-    } = req.body;
-
-    // Find the existing audit form
-    const existingAuditForm = await Audit.findById(id);
-    if (!existingAuditForm) {
-      return res.status(404).json({ message: "Audit form not found" });
-    }
-
-    // Handle image uploads
-    const updatedSections = await Promise.all(
-      sections.map(async (section) => {
-        if (section.image && section.image.startsWith("data:image")) {
-          // Assume section.image is a base64 string
-          const uploadResult = await cloudinary.uploader.upload(section.image, {
-            folder: "audit_images",
-          });
-          return { ...section, image: uploadResult.secure_url };
-        }
-        return section;
-      })
-    );
-
-    // Update the audit form
-    const updatedAuditForm = await Audit.findByIdAndUpdate(
-      id,
-      {
-        userId,
-        nameOfCompany,
-        fssaiLicenseNo,
-        companyRepresentatives,
-        siteAddress,
-        state,
-        pinCode,
-        phoneNo,
-        email,
-        website,
-        auditTeam,
-        dateOfAudit: new Date(dateOfAudit).toISOString(),
-        auditType,
-        auditCriteria,
-        typeOfAudit,
-        scope,
-        manpower,
-        sections: updatedSections,
-        version: existingAuditForm.version + 1,
-      },
-      { new: true }
-    );
-
-    // Generate new PDF
-    const pdfPath = await generateAuditPdf(updatedAuditForm);
-
-    // Save version control information
-    const auditVersion = new AuditVersion({
-      userId: updatedAuditForm.userId,
-      formId: updatedAuditForm._id,
-      versionNumber: updatedAuditForm.version,
-      pdfPath,
-    });
-    await auditVersion.save();
-
-    res.status(200).json({
-      message: "Audit form updated successfully",
-      pdfPath: pdfPath,
-    });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Failed to update audit form", error: error.message });
-  }
+  res.status(200).json({
+    message: "Audit form updated successfully",
+    pdfPath: pdfPath,
+  });
 });
 
 const generateAuditPdf = async (auditForm) => {
-  try {
-    // Load the template PDF
-    const templatePath = path.resolve(__dirname, "../templates/template.pdf");
-    const templatePdfBytes = await fs.readFile(templatePath);
-    const pdfDoc = await PDFDocument.load(templatePdfBytes);
-    const form = pdfDoc.getForm();
-    const pages = pdfDoc.getPages();
+  const templatePath = path.resolve(__dirname, "../templates/template.pdf");
+  const templatePdfBytes = await fs.readFile(templatePath);
+  const pdfDoc = await PDFDocument.load(templatePdfBytes);
+  const form = pdfDoc.getForm();
+  const pages = pdfDoc.getPages();
 
-    // Log all form field names for debugging
-    console.log(
-      "All form field names:",
-      form.getFields().map((field) => field.getName())
-    );
+  const fieldMappings = {
+    cn: auditForm.nameOfCompany,
+    fn: auditForm.fssaiLicenseNo,
+    cr: auditForm.companyRepresentatives.join(", "),
+    sa: auditForm.siteAddress,
+    s: auditForm.state,
+    pc: auditForm.pinCode,
+    text_8soit: auditForm.phoneNo,
+    w: auditForm.website,
+    em: auditForm.email,
+    at: auditForm.auditTeam.join(", "),
+    atp: auditForm.auditType,
+    ad: new Date(auditForm.dateOfAudit).toLocaleDateString(),
+    ac: auditForm.auditCriteria,
+    scp: auditForm.scope,
+    mc: auditForm.manpower.male.toString(),
+    fc: auditForm.manpower.female.toString(),
+  };
 
-    // Fill in the form fields
-    const fieldMappings = {
-      cn: auditForm.nameOfCompany,
-      fn: auditForm.fssaiLicenseNo,
-      cr: auditForm.companyRepresentatives.join(", "),
-      sa: auditForm.siteAddress,
-      s: auditForm.state,
-      pc: auditForm.pinCode,
-      text_8soit: auditForm.phoneNo,
-      w: auditForm.website,
-      em: auditForm.email,
-      at: auditForm.auditTeam.join(", "),
-      atp: auditForm.auditType,
-      ad: new Date(auditForm.dateOfAudit).toLocaleDateString(),
-      ac: auditForm.auditCriteria,
-      scp: auditForm.scope,
-      mc: auditForm.manpower.male.toString(),
-      fc: auditForm.manpower.female.toString(),
-    };
+  Object.entries(fieldMappings).forEach(([fieldName, value]) => {
+    const field = form.getTextField(fieldName);
+    if (field) field.setText(value);
+  });
 
-    Object.entries(fieldMappings).forEach(([fieldName, value]) => {
-      try {
-        const field = form.getTextField(fieldName);
-        if (field) {
-          field.setText(value);
-        } else {
-          console.warn(`TextField ${fieldName} not found in the form.`);
-        }
-      } catch (error) {
-        console.warn(
-          `Error setting text for field ${fieldName}:`,
-          error.message
-        );
-      }
-    });
+  ["pat", "aat"].forEach((checkboxName) => {
+    const checkbox = form.getCheckBox(checkboxName);
+    if (checkbox) {
+      auditForm.typeOfAudit ===
+      (checkboxName === "pat" ? "Pre Assessment" : "Annual audit")
+        ? checkbox.check()
+        : checkbox.uncheck();
+    }
+  });
 
-    // Handle checkboxes for audit type
-    ["pat", "aat"].forEach((checkboxName) => {
-      try {
-        const checkbox = form.getCheckBox(checkboxName);
-        if (checkbox) {
-          auditForm.typeOfAudit ===
-          (checkboxName === "pat" ? "Pre Assessment" : "Annual audit")
-            ? checkbox.check()
-            : checkbox.uncheck();
-        } else {
-          console.warn(`Checkbox ${checkboxName} not found in the form.`);
-        }
-      } catch (error) {
-        console.warn(`Error handling checkbox ${checkboxName}:`, error.message);
-      }
-    });
+  const colorMap = {
+    Y: rgb(0.0, 1.0, 0.0),
+    N: rgb(1.0, 0.0, 0.0),
+    NI: rgb(1.0, 1.0, 0.0),
+    "N/A": rgb(0.5, 0.5, 0.5),
+  };
 
-    // Define color map based on compliance
-    const colorMap = {
-      Y: rgb(0.0, 1.0, 0.0), // Green for Compliance
-      N: rgb(1.0, 0.0, 0.0), // Red for Not Compliance
-      NI: rgb(1.0, 1.0, 0.0), // Yellow for Needs Improvement
-      "N/A": rgb(0.5, 0.5, 0.5), // Gray for Not Applicable
-    };
+  const complianceMap = { Y: 1, N: 2, NI: 3, "N/A": 4 };
 
-    // Fill in the sections and apply colors
-    auditForm.sections.forEach((section, index) => {
-      const questionNumber = index + 1;
-      const textFieldName = `q${questionNumber}`;
+  auditForm.sections.forEach((section, index) => {
+    const questionNumber = index + 1;
+    const textFieldName = `q${questionNumber}`;
+    const textField = form.getTextField(textFieldName);
 
-      try {
-        const textField = form.getTextField(textFieldName);
-        if (textField) {
-          textField.setText(section.evidenceAndComments);
-          textField.setFontSize(10);
+    if (textField) {
+      textField.setText(section.evidenceAndComments);
+      textField.setFontSize(10);
 
-          const widget = textField.acroField.getWidgets()[0];
-          const { x, y, width, height } = widget.getRectangle();
+      const widget = textField.acroField.getWidgets()[0];
+      const { x, y, width, height } = widget.getRectangle();
+      const fieldPage = widget.P;
+      const pageIndex = pages.findIndex((page) => page.ref === fieldPage);
 
-          const fieldPage = widget.P;
-          const pageIndex = pdfDoc
-            .getPages()
-            .findIndex((page) => page.ref === fieldPage);
-
-          if (pageIndex !== -1) {
-            const page = pages[pageIndex];
-            const backgroundColor = colorMap[section.compliance];
-            if (backgroundColor) {
-              page.drawRectangle({
-                x,
-                y,
-                width,
-                height,
-                color: backgroundColor,
-                opacity: 0.3,
-              });
-            }
-          }
-        } else {
-          console.warn(`TextField ${textFieldName} not found in the form.`);
-        }
-      } catch (error) {
-        console.warn(
-          `Error processing text field ${textFieldName}:`,
-          error.message
-        );
-      }
-
-      // Check the appropriate checkbox based on compliance
-      const complianceMap = { Y: 1, N: 2, NI: 3, "N/A": 4 };
-      const checkboxNumber = complianceMap[section.compliance];
-      if (checkboxNumber) {
-        const checkboxFieldName = `q${questionNumber}c${checkboxNumber}`;
-        try {
-          const checkbox = form.getCheckBox(checkboxFieldName);
-          if (checkbox) {
-            checkbox.check();
-          } else {
-            console.warn(
-              `Checkbox ${checkboxFieldName} not found in the form.`
-            );
-          }
-        } catch (error) {
-          console.warn(
-            `Error checking checkbox ${checkboxFieldName}:`,
-            error.message
-          );
-        }
-      }
-    });
-
-    // Add images and their details
-    const imageSections = auditForm.sections.filter((section) => section.image);
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const fontSize = 10;
-    const lineHeight = 15;
-
-    for (let i = 0; i < imageSections.length; i++) {
-      const section = imageSections[i];
-      const imagePage = pdfDoc.addPage();
-      const { width, height } = imagePage.getSize();
-      const margin = 50;
-      const imageWidth = width - 2 * margin;
-      const imageHeight = height * 0.6; // 60% of page height for image
-
-      try {
-        // Fetch and process image
-        const response = await axios.get(section.image, {
-          responseType: "arraybuffer",
-        });
-        const imageBuffer = Buffer.from(response.data);
-        const metadata = await sharp(imageBuffer).metadata();
-        let processedImageBuffer = imageBuffer;
-
-        if (metadata.format !== "jpeg" && metadata.format !== "jpg") {
-          processedImageBuffer = await sharp(imageBuffer).jpeg().toBuffer();
-        }
-
-        // Embed and draw image
-        const embeddedImage = await pdfDoc.embedJpg(processedImageBuffer);
-        imagePage.drawImage(embeddedImage, {
-          x: margin,
-          y: height - margin - imageHeight,
-          width: imageWidth,
-          height: imageHeight,
-        });
-
-        // Helper function to draw wrapped text
-        const drawWrappedText = (text, yPosition) => {
-          const words = text.split(" ");
-          let line = "";
-          let currentY = yPosition;
-
-          words.forEach((word) => {
-            const testLine = line + word + " ";
-            const testWidth = font.widthOfTextAtSize(testLine, fontSize);
-
-            if (testWidth > imageWidth) {
-              imagePage.drawText(line, {
-                x: margin,
-                y: currentY,
-                size: fontSize,
-                font: font,
-              });
-              line = word + " ";
-              currentY -= lineHeight;
-            } else {
-              line = testLine;
-            }
+      if (pageIndex !== -1) {
+        const page = pages[pageIndex];
+        const backgroundColor = colorMap[section.compliance];
+        if (backgroundColor) {
+          page.drawRectangle({
+            x,
+            y,
+            width,
+            height,
+            color: backgroundColor,
+            opacity: 0.3,
           });
-
-          imagePage.drawText(line, {
-            x: margin,
-            y: currentY,
-            size: fontSize,
-            font: font,
-          });
-          return currentY - lineHeight;
-        };
-
-        // Draw text below the image
-        let textY = height - margin - imageHeight - lineHeight;
-        textY = drawWrappedText(`Question: ${section.question}`, textY);
-        textY = drawWrappedText(`Compliance: ${section.compliance}`, textY);
-        drawWrappedText(`Evidence: ${section.evidenceAndComments}`, textY);
-      } catch (imageError) {
-        console.error(
-          `Error processing image for section ${i + 1}:`,
-          imageError
-        );
-        imagePage.drawText(`Error loading image for Question ${i + 1}`, {
-          x: margin,
-          y: height - margin,
-          size: 12,
-          color: rgb(1, 0, 0),
-          font: font,
-        });
+        }
       }
     }
 
-    // Make form read-only
-    form.getFields().forEach((field) => {
-      try {
-        field.enableReadOnly();
-      } catch (error) {
-        console.warn(
-          `Error setting read-only for field ${field.getName()}:`,
-          error.message
-        );
+    const checkboxNumber = complianceMap[section.compliance];
+    if (checkboxNumber) {
+      const checkboxFieldName = `q${questionNumber}c${checkboxNumber}`;
+      const checkbox = form.getCheckBox(checkboxFieldName);
+      if (checkbox) checkbox.check();
+    }
+  });
+
+  const imageSections = auditForm.sections.filter((section) => section.image);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontSize = 10;
+  const lineHeight = 15;
+
+  for (const section of imageSections) {
+    const imagePage = pdfDoc.addPage();
+    const { width, height } = imagePage.getSize();
+    const margin = 50;
+    const imageWidth = width - 2 * margin;
+    const imageHeight = height * 0.6;
+
+    try {
+      const response = await axios.get(section.image, {
+        responseType: "arraybuffer",
+      });
+      const imageBuffer = Buffer.from(response.data);
+      const metadata = await sharp(imageBuffer).metadata();
+      let processedImageBuffer = imageBuffer;
+
+      if (metadata.format !== "jpeg" && metadata.format !== "jpg") {
+        processedImageBuffer = await sharp(imageBuffer).jpeg().toBuffer();
       }
-    });
 
-    // Generate the PDF bytes in-memory
-    const pdfBytes = await pdfDoc.save();
-    const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
+      const embeddedImage = await pdfDoc.embedJpg(processedImageBuffer);
+      imagePage.drawImage(embeddedImage, {
+        x: margin,
+        y: height - margin - imageHeight,
+        width: imageWidth,
+        height: imageHeight,
+      });
 
-    // Upload the PDF directly to S3
-    const s3Url = await uploadPdfToS3(pdfBytes, pdfName);
+      const drawWrappedText = (text, yPosition) => {
+        const words = text.split(" ");
+        let line = "";
+        let currentY = yPosition;
 
-    // Return the S3 URL
-    return s3Url;
-  } catch (error) {
-    console.error("Error generating PDF:", error);
-    throw error;
+        words.forEach((word) => {
+          const testLine = line + word + " ";
+          const testWidth = font.widthOfTextAtSize(testLine, fontSize);
+
+          if (testWidth > imageWidth) {
+            imagePage.drawText(line, {
+              x: margin,
+              y: currentY,
+              size: fontSize,
+              font: font,
+            });
+            line = word + " ";
+            currentY -= lineHeight;
+          } else {
+            line = testLine;
+          }
+        });
+
+        imagePage.drawText(line, {
+          x: margin,
+          y: currentY,
+          size: fontSize,
+          font: font,
+        });
+        return currentY - lineHeight;
+      };
+
+      let textY = height - margin - imageHeight - lineHeight;
+      textY = drawWrappedText(`Question: ${section.question}`, textY);
+      textY = drawWrappedText(`Compliance: ${section.compliance}`, textY);
+      drawWrappedText(`Evidence: ${section.evidenceAndComments}`, textY);
+    } catch (imageError) {
+      console.error(`Error processing image:`, imageError);
+      imagePage.drawText(`Error loading image`, {
+        x: margin,
+        y: height - margin,
+        size: 12,
+        color: rgb(1, 0, 0),
+        font: font,
+      });
+    }
   }
+
+  form.getFields().forEach((field) => field.enableReadOnly());
+
+  const pdfBytes = await pdfDoc.save();
+  const pdfName = `Audit_Form_${auditForm._id}_v${auditForm.version}.pdf`;
+
+  return uploadPdfToS3(pdfBytes, pdfName);
 };
 
 export default generateAuditPdf;
+
 export const getUserFilledAuditForms = asyncHandler(async (req, res) => {
   try {
     const { userId } = req.params;
