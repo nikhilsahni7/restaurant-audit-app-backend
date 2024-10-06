@@ -87,27 +87,4 @@ app.get("/", (req, res) => {
 // Start server
 const server = app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
-  // Start the self-pinging mechanism
-  keepServerAlive();
 });
-
-function keepServerAlive() {
-  const pingInterval = 10 * 1000; // 10 seconds
-  const appUrl =
-    process.env.APP_URL ||
-    "https://restaurant-audit-app-backend-1.onrender.com";
-
-  setInterval(() => {
-    https
-      .get(`${appUrl}/ping`, (resp) => {
-        if (resp.statusCode === 200) {
-          console.log("Server pinged successfully");
-        } else {
-          console.log("Failed to ping server");
-        }
-      })
-      .on("error", (err) => {
-        console.log("Error pinging server: " + err.message);
-      });
-  }, pingInterval);
-}
